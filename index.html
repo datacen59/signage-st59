@@ -141,6 +141,43 @@
   .imgpick .thumb{width:200px}
   .switch{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px;color:var(--ink);margin:0;cursor:pointer}
 
+  .seg .n{display:inline-block;min-width:22px;padding:0 6px;margin-left:6px;border-radius:99px;background:var(--line);color:var(--ink);font-size:12px;font-variant-numeric:tabular-nums}
+  .seg button.on .n{background:var(--tag)}
+  .stseg button{font-size:15px}
+  .chip.amber{background:#fff4e0;color:#b7791f;border-color:transparent}
+  .chip.green{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+  .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+  .movebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--tag-soft);border:1px solid #f3dc8f;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:14px}
+  .movebar span{flex:1 1 220px}
+
+  /* ---------- คำขอของฉัน (ติดตามสถานะ) ---------- */
+  .ready-alert{display:flex;gap:10px;align-items:center;background:var(--ok);color:#fff;border-radius:12px;padding:10px 12px;margin-bottom:12px;font-weight:600;animation:slide .3s ease}
+  .ready-alert .bell{font-size:20px;animation:ring 1.2s ease 2}
+  @keyframes ring{10%,30%{transform:rotate(14deg)}20%,40%{transform:rotate(-14deg)}50%{transform:none}}
+  .mreq{border:1.5px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;background:#fff}
+  .mreq.ready{border-color:var(--ok);background:linear-gradient(180deg,var(--ok-soft),#fff 60%)}
+  .mreq-top{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+  .mreq-top b{font-family:var(--display);font-weight:600;font-size:15px}
+  .chip.st-p{background:#fff4e0;color:#b7791f;border-color:transparent}
+  .chip.st-e{background:var(--blue-soft);color:var(--blue);border-color:transparent}
+  .chip.st-r{background:var(--ok);color:#fff;border-color:transparent}
+  .chip.st-d{background:var(--paper);color:var(--mute)}
+  .track{display:grid;grid-template-columns:repeat(3,1fr);margin:12px 0 4px;position:relative}
+  .track::before{content:"";position:absolute;left:16.6%;right:16.6%;top:11px;height:3px;background:var(--line);border-radius:3px}
+  .track .fill{position:absolute;left:16.6%;top:11px;height:3px;background:var(--ok);border-radius:3px;transition:width .6s ease}
+  .tstep{text-align:center;position:relative;z-index:1;font-size:12px;color:var(--mute)}
+  .tstep i{display:grid;place-items:center;width:25px;height:25px;margin:0 auto 4px;border-radius:50%;background:#fff;border:3px solid var(--line);font-style:normal;font-size:12px;font-weight:700}
+  .tstep.done i{background:var(--ok);border-color:var(--ok);color:#fff}
+  .tstep.now i{border-color:var(--ok);color:var(--ok);box-shadow:0 0 0 5px rgba(31,157,85,.15)}
+  .tstep.now b{color:var(--ink)}
+  .tstep b{display:block;font-weight:600;font-size:12.5px}
+  .tstep small{font-family:var(--mono);font-size:11px}
+  .mreq-foot{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:8px}
+  .mreq-foot summary{cursor:pointer;color:var(--mute);font-size:13px;font-weight:600}
+  .mitems{list-style:none;margin:6px 0 0;padding:0;font-size:13px}
+  .mitems li{display:flex;gap:8px;padding:3px 0;border-bottom:1px dashed var(--line)}
+  .mitems .mono{font-weight:700;min-width:62px}
+
   /* ---------- สแกนบาร์โค้ด ---------- */
   .scanbtn{width:100%;margin-top:8px;border:2px dashed var(--red);color:var(--red-dk);background:var(--red-soft);min-height:54px;font-size:16px}
   .scanbtn:hover{border-color:var(--red-dk)}
@@ -274,8 +311,21 @@
 </header>
 
 <main class="wrap">
+  
+
   <!-- สถานะคำขอที่กำลังส่ง -->
   <div id="outbox"></div>
+
+  <!-- คำขอของฉัน: สถานะ ส่งแล้ว → กำลังพิมพ์ → พร้อมรับ -->
+  <section class="card hide" id="mineCard">
+    <div id="readyAlert"></div>
+    <div class="card-h"><h2>คำขอของฉัน</h2><span class="muted" id="mineCount"></span></div>
+    <div id="mineList"></div>
+    <details id="histBox">
+      <summary class="muted" style="cursor:pointer;font-weight:600">รับแล้ว / ประวัติ (<span id="histCount">0</span>)</summary>
+      <div id="histList" style="margin-top:8px"></div>
+    </details>
+  </section>
 
   <section class="card">
     <div class="card-h"><span class="step">1</span><h2>ผู้ขอ และประเภทคำขอ</h2></div>
@@ -403,7 +453,7 @@
  */
 (function () {
   'use strict';
-  var FNS = ['submitRequest', 'lookupProducts', 'getTemplateImages', 'ping'];
+  var FNS = ['submitRequest', 'lookupProducts', 'getTemplateImages', 'ping', 'getMyRequests', 'markReceived'];
   var CFG_KEY = 'sg_cfg_cache';
 
   function apiReady() { return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(API_URL); }
@@ -910,6 +960,7 @@ window.__startApp = function () {
     if (!codes.length) return;
     lookup(codes).then(function () {
       render(true);
+      if (mineReqs && mineReqs.length) renderMine();
       if (Object.keys(lookupQueue).length) flushLookup();
     });
   }
@@ -1259,6 +1310,8 @@ window.__startApp = function () {
       .withSuccessHandler(function (res) {
         if (res && res.ok) {
           o.status = 'ok';
+          rememberMine(o.payload.requestId);          // จำไว้ติดตามสถานะใน "คำขอของฉัน"
+          setTimeout(loadMine, 800);
           setTimeout(function () { var i = outbox.indexOf(o); if (i >= 0) outbox.splice(i, 1); renderOutbox(); }, 12000);
         } else { o.status = 'err'; o.error = (res && res.message) || 'ส่งไม่สำเร็จ'; }
         renderOutbox(); saveOutbox();
@@ -1295,6 +1348,127 @@ window.__startApp = function () {
     state.items = []; $('note').value = ''; render(); saveDraft();
     window.scrollTo({ top: 0, behavior: 'smooth' });
     send(o);
+  }
+
+
+  /* =====================================================================
+     คำขอของฉัน: จำเลขที่คำขอที่ส่งจากมือถือเครื่องนี้ → ถามสถานะจาก server ทุก 1 นาที
+     ===================================================================== */
+  var MINE_KEY = 'sg_mine', MINE_CACHE = 'sg_mine_cache', MINE_MAX = 40, MINE_DAYS = 30;
+  var mineReqs = [];
+
+  function mineIds() {
+    var list = restore(MINE_KEY) || [], cut = Date.now() - MINE_DAYS * 864e5;
+    return list.filter(function (x) { return x && x.id && x.at > cut; });
+  }
+  function rememberMine(id) {
+    var list = mineIds().filter(function (x) { return x.id !== id; });
+    list.unshift({ id: id, at: Date.now() });
+    store(MINE_KEY, list.slice(0, MINE_MAX));
+  }
+
+  function hhmm(ms) { if (!ms) return '–'; var d = new Date(ms); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  function dayLabel(ms) {
+    var d = new Date(ms), t = new Date();
+    if (d.toDateString() === t.toDateString()) return 'วันนี้ ' + hhmm(ms);
+    return d.getDate() + '/' + (d.getMonth() + 1) + ' ' + hhmm(ms);
+  }
+
+  var ST_LABEL = { Pending: ['รอดำเนินการ', 'st-p'], Exported: ['กำลังพิมพ์', 'st-e'], Ready: ['พร้อมรับ', 'st-r'], Received: ['รับแล้ว', 'st-d'] };
+  var ST_ORDER = { Pending: 0, Exported: 1, Ready: 2, Received: 3 };
+
+  function mineCard(r) {
+    var c = el('div', 'mreq' + (r.status === 'Ready' ? ' ready' : ''));
+    var top = el('div', 'mreq-top'), left = el('div');
+    var copies = r.items.reduce(function (s, i) { return s + i.copies; }, 0);
+    left.appendChild(el('b', null, (r.type === 'Signage' ? 'ป้ายราคา ' : 'Railcard ') + r.items.length + ' รายการ · ' + copies + ' ใบ'));
+    var tpls = {}; r.items.forEach(function (i) { if (i.template) tpls[i.template + (i.size ? ' · ' + i.size : '')] = 1; });
+    left.appendChild(el('div', 'muted', (Object.keys(tpls).length ? Object.keys(tpls).join(', ') + ' · ' : '') + 'ส่ง ' + dayLabel(r.sentAt)));
+    top.appendChild(left);
+    var lab = ST_LABEL[r.status] || ST_LABEL.Pending;
+    top.appendChild(el('span', 'chip ' + lab[1], lab[0]));
+    c.appendChild(top);
+
+    if (r.status !== 'Received') {
+      var k = ST_ORDER[r.status] || 0, tr = el('div', 'track'), fill = el('div', 'fill');
+      fill.style.width = (k / 2 * 66.8) + '%'; tr.appendChild(fill);
+      [['ส่งแล้ว', r.sentAt], ['กำลังพิมพ์', r.exportedAt], ['พร้อมรับ', r.readyAt]].forEach(function (s, i) {
+        var done = i < k || (r.status === 'Ready' && i === 2);
+        var st = el('div', 'tstep' + (done ? ' done' : '') + (i === k && r.status !== 'Ready' ? ' now' : ''));
+        st.appendChild(el('i', null, done ? '✓' : String(i + 1)));
+        st.appendChild(el('b', null, s[0]));
+        st.appendChild(el('small', null, s[1] ? hhmm(s[1]) : '–'));
+        tr.appendChild(st);
+      });
+      c.appendChild(tr);
+    }
+
+    var f = el('div', 'mreq-foot'), d = el('details');
+    d.appendChild(el('summary', null, 'ดูรายการ (' + r.items.length + ')'));
+    var ul = el('ul', 'mitems');
+    r.items.forEach(function (i) {
+      var li = el('li'); li.appendChild(el('span', 'mono', i.article));
+      var nm = NAMES[i.article] && NAMES[i.article].name;
+      li.appendChild(el('span', null, (nm ? nm + ' ' : '') + '× ' + i.copies));
+      ul.appendChild(li);
+    });
+    d.appendChild(ul); f.appendChild(d);
+    if (r.status === 'Ready') {
+      var b = el('button', 'btn sm ok', 'รับแล้ว ✓'); b.type = 'button';
+      b.addEventListener('click', function () {
+        b.disabled = true; b.textContent = 'กำลังบันทึก…';
+        google.script.run
+          .withSuccessHandler(function (res) { if (res && res.ok === false) { b.disabled = false; b.textContent = 'รับแล้ว ✓'; } loadMine(); })
+          .withFailureHandler(function () { b.disabled = false; b.textContent = 'รับแล้ว ✓'; })
+          .markReceived(r.id);
+      });
+      f.appendChild(b);
+    }
+    c.appendChild(f);
+    return c;
+  }
+
+  function renderMine() {
+    var active = mineReqs.filter(function (r) { return r.status !== 'Received'; })
+      .sort(function (a, b) { return (ST_ORDER[b.status] - ST_ORDER[a.status]) || (b.sentAt - a.sentAt); });
+    var hist = mineReqs.filter(function (r) { return r.status === 'Received'; }).sort(function (a, b) { return b.sentAt - a.sentAt; });
+    $('mineCard').classList.toggle('hide', !mineReqs.length);
+    var ready = active.filter(function (r) { return r.status === 'Ready'; }).length;
+    var ra = $('readyAlert'); ra.textContent = '';
+    if (ready) {
+      var a = el('div', 'ready-alert'); a.appendChild(el('span', 'bell', '🔔'));
+      a.appendChild(el('span', null, 'ป้ายพร้อมรับ ' + ready + ' คำขอ · มารับที่ห้อง Office ได้เลย'));
+      ra.appendChild(a);
+    }
+    $('mineCount').textContent = active.length ? active.length + ' คำขอที่ยังไม่เสร็จ' : 'ไม่มีคำขอค้าง';
+    var L = $('mineList'); L.textContent = '';
+    active.forEach(function (r) { L.appendChild(mineCard(r)); });
+    $('histCount').textContent = hist.length;
+    $('histBox').classList.toggle('hide', !hist.length);
+    var H = $('histList'); H.textContent = '';
+    hist.slice(0, 10).forEach(function (r) { H.appendChild(mineCard(r)); });
+  }
+
+  var mineLoading = false;
+  function loadMine() {
+    var ids = mineIds().map(function (x) { return x.id; });
+    if (!ids.length || mineLoading) return;
+    mineLoading = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        mineLoading = false;
+        if (!res || !res.ok) return;
+        // คำขอที่เพิ่งเปลี่ยนเป็น "พร้อมรับ" → สั่นเตือน
+        var prev = {}; mineReqs.forEach(function (r) { prev[r.id] = r.status; });
+        var newlyReady = res.requests.some(function (r) { return r.status === 'Ready' && prev[r.id] && prev[r.id] !== 'Ready'; });
+        mineReqs = res.requests;
+        store(MINE_CACHE, mineReqs);
+        if (newlyReady) { try { if (navigator.vibrate) navigator.vibrate([120, 80, 120]); } catch (e) {} }
+        queueLookup(mineReqs.reduce(function (a, r) { return a.concat(r.items.map(function (i) { return i.article; })); }, []));
+        renderMine();
+      })
+      .withFailureHandler(function () { mineLoading = false; })
+      .getMyRequests(ids);
   }
 
   /* ---------- events ---------- */
@@ -1343,6 +1517,13 @@ window.__startApp = function () {
   renderOutbox();
 
   google.script.run.withFailureHandler(function () {}).ping(); // ปลุก server ไว้ก่อน
+
+  // คำขอของฉัน: แสดงจากที่จำไว้ก่อน (เร็ว) แล้วอัปเดตจาก server · เช็คใหม่ทุก 1 นาที / ตอนกลับมาที่หน้า
+  mineReqs = (restore(MINE_CACHE) || []).filter(function (r) { return r && r.id && Array.isArray(r.items); });
+  renderMine();
+  loadMine();
+  setInterval(function () { if (!document.hidden) loadMine(); }, 60000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) loadMine(); });
 })();
 
 };
