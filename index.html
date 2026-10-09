@@ -486,19 +486,24 @@
   var G = L.map(function (p) { return p.slice().reverse(); });
   var PARITY = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
   var MAX_DIGIT_ERR = 1.5;
+  var MAX_TOTAL_ERR = 1.0;  // ค่าเพี้ยนเฉลี่ยต่อหลักสูงสุด
+  var MIN_MODULE = 1.4;      // แท่งที่บางกว่านี้ (พิกเซล) อ่านไม่น่าเชื่อถือ → ข้าม
 
+  var MIN_MARGIN = 0.1;   // ตัวเลขที่ดีที่สุดต้องชัดกว่าอันดับ 2 อย่างน้อยเท่านี้ (ไม่งั้นถือว่ากำกวม → ไม่เดา)
   function bestDigit(runs, off, sets) {
     var t = runs[off] + runs[off + 1] + runs[off + 2] + runs[off + 3];
-    var best = { d: -1, err: 99, set: '' };
+    var best = { d: -1, err: 99, set: '' }, second = 99;
     for (var s = 0; s < sets.length; s++) {
       var tbl = sets[s].tbl;
       for (var d = 0; d < 10; d++) {
         var p = tbl[d], e = 0;
         for (var k = 0; k < 4; k++) e += Math.abs(runs[off + k] * 7 / t - p[k]);
-        if (e < best.err) best = { d: d, err: e, set: sets[s].name };
+        if (e < best.err) { second = best.err; best = { d: d, err: e, set: sets[s].name }; }
+        else if (e < second) second = e;
       }
     }
-    return best.err <= MAX_DIGIT_ERR ? best : null;
+    if (best.err > MAX_DIGIT_ERR || second - best.err < MIN_MARGIN) return null;
+    return best;
   }
 
   function guardOk(runs, off, count, m) {
@@ -538,21 +543,23 @@
     var total = 0;
     for (var k = 0; k < 59; k++) total += runs[i + k];
     var m = total / 95;
+    if (m < MIN_MODULE) return null;
     if (i > 0 && runs[i - 1] < 2 * m) return null; // ต้องมีพื้นขาวก่อนบาร์โค้ด
     if (!guardOk(runs, i, 3, m) || !guardOk(runs, i + 27, 5, m) || !guardOk(runs, i + 56, 3, m)) return null;
     return readEan13(runs, i) || readEan13(inkCorrect(runs, i, 59, E13_B, E13_W), 0);
   }
 
   function readEan13(runs, i) {
-    var digits = [], parity = '';
+    var digits = [], parity = '', errSum = 0;
     for (var a = 0; a < 6; a++) {
       var b = bestDigit(runs, i + 3 + a * 4, LG); if (!b) return null;
-      digits.push(b.d); parity += b.set;
+      digits.push(b.d); parity += b.set; errSum += b.err;
     }
     for (var c = 0; c < 6; c++) {
       var r = bestDigit(runs, i + 32 + c * 4, ONLY_L); if (!r) return null;
-      digits.push(r.d);
+      digits.push(r.d); errSum += r.err;
     }
+    if (errSum > MAX_TOTAL_ERR * 12) return null; // ภาพรวมเพี้ยนเกิน → ไม่เชื่อ
     var first = PARITY.indexOf(parity);
     if (first < 0) return null;
     digits.unshift(first);
@@ -564,6 +571,7 @@
     var total = 0;
     for (var k = 0; k < 43; k++) total += runs[i + k];
     var m = total / 67;
+    if (m < MIN_MODULE) return null;
     // EAN-8 สั้น → เข้มงวดกว่า: ต้องมีพื้นขาวทั้งหน้าและหลัง
     if (i === 0 || runs[i - 1] < 3 * m || (i + 43 < runs.length && runs[i + 43] < 3 * m)) return null;
     if (!guardOk(runs, i, 3, m) || !guardOk(runs, i + 19, 5, m) || !guardOk(runs, i + 40, 3, m)) return null;
@@ -571,9 +579,10 @@
   }
 
   function readEan8(runs, i) {
-    var digits = [];
-    for (var a = 0; a < 4; a++) { var b = bestDigit(runs, i + 3 + a * 4, ONLY_L); if (!b) return null; digits.push(b.d); }
-    for (var c = 0; c < 4; c++) { var r = bestDigit(runs, i + 24 + c * 4, ONLY_L); if (!r) return null; digits.push(r.d); }
+    var digits = [], errSum = 0;
+    for (var a = 0; a < 4; a++) { var b = bestDigit(runs, i + 3 + a * 4, ONLY_L); if (!b) return null; digits.push(b.d); errSum += b.err; }
+    for (var c = 0; c < 4; c++) { var r = bestDigit(runs, i + 24 + c * 4, ONLY_L); if (!r) return null; digits.push(r.d); errSum += r.err; }
+    if (errSum > MAX_TOTAL_ERR * 8) return null;
     return eanCheck(digits) ? digits.join('') : null;
   }
 
@@ -699,12 +708,24 @@
 
   /** อ่านจากเฟรมวิดีโอ (เร็ว: เฉพาะกลางภาพ, มุมหลักๆ) */
   function decodeVideo(video) {
-    var g = toGray(video, 900, { w: 0.9, h: 0.6 });
-    var r = decodeGray(g.gray, g.w, g.h, { angles: [0, 90, 15, -15], lines: 18, windows: [10, 24], enough: 2 });
+    // ใช้เฉพาะกลางภาพ (ตรงกรอบสีเหลือง) ที่ความละเอียดเต็ม → บาร์โค้ดเล็กบน railcard ก็อ่านได้
+    var g = toGray(video, 1400, { w: 0.85, h: 0.4 });
+    var r = decodeGray(g.gray, g.w, g.h, { angles: [0, 90, 12, -12], lines: 20, windows: [10, 24], enough: 2 });
     return r && r.votes >= 2 ? r.code : null;
   }
 
-  root.BarcodeScan = { decodeGray: decodeGray, decodeImage: decodeImage, decodeVideo: decodeVideo, toGray: toGray };
+  /**
+   * บาร์โค้ดบนป้ายราคา (railcard) = EAN-13 รูปแบบ 25 + Article 10 หลัก (เติม 0 ข้างหน้า) + check digit
+   * เช่น 2500001520302 → Article 152030 · คืน Article หรือ null
+   */
+  function railcardArticle(code) {
+    code = String(code || '');
+    if (!/^25\d{11}$/.test(code) || !eanCheck(code.split('').map(Number))) return null;
+    var art = code.slice(2, 12).replace(/^0+/, '');
+    return /^\d{4,10}$/.test(art) ? art : null;
+  }
+
+  root.BarcodeScan = { railcardArticle: railcardArticle, decodeGray: decodeGray, decodeImage: decodeImage, decodeVideo: decodeVideo, toGray: toGray };
 })(typeof window !== 'undefined' ? window : this);
 </script>
 
@@ -977,6 +998,8 @@ window.__startApp = function () {
     code = String(code).replace(/\D/g, '');
     function show(t, ok) { if (statusEl) { statusEl.textContent = t; statusEl.className = statusEl.className.replace(/\b(ok|err)\b/g, '').trim() + ' ' + (ok ? 'ok' : 'err'); } }
     if (!HAS_PRODUCTS) {
+      var rc = window.BarcodeScan && window.BarcodeScan.railcardArticle(code); // บาร์โค้ดบนป้ายราคา → Article ตรงๆ
+      if (rc) code = rc;
       if (/^\d{4,10}$/.test(code)) {
         var e0 = addItem(code, qty); if (e0) { show(e0, false); return Promise.resolve({ ok: false }); }
         render(); saveDraft(); show('✓ เพิ่ม ' + code, true); return Promise.resolve({ ok: true, article: code });
@@ -994,7 +1017,7 @@ window.__startApp = function () {
       var e = addItem(f.article, qty);
       if (e) { show(e, false); return { ok: false }; }
       render(); saveDraft();
-      show('✓ ' + f.article + ' ' + (f.name || ''), true);
+      show('✓ ' + f.article + ' ' + (f.name || '') + (f.railcard ? ' (จากป้ายราคา)' : ''), true);
       return { ok: true, article: f.article, name: f.name };
     });
   }
