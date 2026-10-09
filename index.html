@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ขอป้ายราคา / Railcard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  /* แนวคิด: โลกของป้ายราคา — หัวสีกรมท่า, ป้ายแท็กสีเหลือง, ปุ่มหลักสีแดงแบบป้ายโปร */
+  :root{
+    --ink:#14213d; --ink-2:#23345c; --paper:#f3f5fa; --card:#ffffff; --line:#e2e7f0;
+    --mute:#66708a; --red:#e63946; --red-dk:#c62f3b; --red-soft:#fdecee;
+    --tag:#ffc93c; --tag-soft:#fff6db; --ok:#1f9d55; --ok-soft:#e7f7ee; --bad:#d64545; --bad-soft:#fdeeee;
+    --blue:#2f6bff; --blue-soft:#e9f0ff;
+    --display:"Kanit","Sarabun",system-ui,sans-serif; --body:"Sarabun",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+    --r:14px; --shadow:0 1px 2px rgba(20,33,61,.06),0 8px 24px -12px rgba(20,33,61,.18);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+  .hide{display:none!important}
+
+  /* ---------- Header band ---------- */
+  .hero{background:var(--ink);color:#fff;position:relative;overflow:hidden}
+  .hero::after{content:"";position:absolute;inset:auto -60px -90px auto;width:260px;height:260px;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,201,60,.22),transparent 65%);pointer-events:none}
+  .hero-in{max-width:1000px;margin:0 auto;padding:18px 16px 54px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .hero h1{font-family:var(--display);font-weight:600;font-size:clamp(20px,4.6vw,28px);line-height:1.15;margin:0;letter-spacing:.2px;text-wrap:balance}
+  .hero p{margin:4px 0 0;color:#c7cfe2;font-size:14px}
+  .hero .grow{flex:1 1 260px;min-width:0}
+  .hero .ghost{color:#fff;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06)}
+  .hero a.ghost{color:#fff;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);text-decoration:none}
+  .hero a.ghost:hover{background:rgba(255,255,255,.14)}
+
+  /* ป้ายแท็กราคา: ตัวนับรายการ */
+  .pricetag{position:relative;background:var(--tag);color:var(--ink);font-family:var(--display);font-weight:700;
+    padding:6px 14px 6px 22px;border-radius:6px 10px 10px 6px;clip-path:polygon(12px 0,100% 0,100% 100%,12px 100%,0 50%);
+    display:inline-flex;align-items:baseline;gap:6px;white-space:nowrap;box-shadow:0 6px 16px -8px rgba(0,0,0,.5)}
+  .pricetag::before{content:"";position:absolute;left:8px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:var(--ink)}
+  .pricetag b{font-size:22px;line-height:1}
+  .pricetag small{font-size:12px;font-weight:500}
+  .bump{animation:bump .35s ease}
+  @keyframes bump{40%{transform:scale(1.15) rotate(-3deg)}}
+
+  /* ---------- Layout ---------- */
+  .wrap{max-width:1000px;margin:-38px auto 0;padding:0 16px 120px;position:relative;z-index:1}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .card-h{display:flex;align-items:center;gap:10px;margin:0 0 12px}
+  .card-h h2{font-family:var(--display);font-weight:600;font-size:17px;margin:0;flex:1}
+  .step{width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;font-family:var(--display);
+    font-size:13px;display:inline-grid;place-items:center;flex:none}
+  label{display:block;font-size:13px;color:var(--mute);margin:0 0 5px;font-weight:500}
+  .muted{color:var(--mute);font-size:13px}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.3px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}.row>*{flex:1 1 140px;min-width:0}
+  .row>.fit{flex:0 0 auto}
+
+  /* ---------- Controls ---------- */
+  input,select,textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font:inherit;
+    font-size:16px;background:#fff;color:var(--ink);min-height:46px;transition:border-color .15s,box-shadow .15s}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 4px var(--blue-soft)}
+  textarea{min-height:110px;font-family:var(--mono);font-size:15px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid var(--line);background:#fff;color:var(--ink);
+    border-radius:10px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap;min-height:46px;
+    touch-action:manipulation;transition:transform .08s,background .15s,border-color .15s,box-shadow .15s;text-decoration:none}
+  .btn:hover{border-color:#c5cede}
+  .btn:active{transform:translateY(1px) scale(.98)}
+  .btn:focus-visible{outline:none;box-shadow:0 0 0 4px var(--blue-soft)}
+  .btn.pri{background:var(--red);border-color:var(--red);color:#fff;box-shadow:0 6px 14px -6px rgba(230,57,70,.55)}
+  .btn.pri:hover{background:var(--red-dk);border-color:var(--red-dk)}
+  .btn.dark{background:var(--ink);border-color:var(--ink);color:#fff}
+  .btn.danger{color:var(--bad)}
+  .btn.sm{min-height:38px;padding:6px 12px;font-size:14px}
+  .btn.icon{width:46px;padding:0}
+  .btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;transform:none}
+
+  .seg{display:flex;background:var(--paper);border:1.5px solid var(--line);border-radius:12px;padding:4px;gap:4px}
+  .seg button{flex:1;border:0;background:transparent;color:var(--mute);padding:8px 10px;font:inherit;font-weight:600;border-radius:8px;cursor:pointer;min-height:38px}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(20,33,61,.15)}
+
+  /* การ์ดเลือกประเภท */
+  .types{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .type{display:flex;gap:12px;align-items:center;text-align:left;border:2px solid var(--line);background:#fff;border-radius:12px;
+    padding:12px;cursor:pointer;font:inherit;color:var(--ink);transition:border-color .15s,background .15s,transform .1s}
+  .type:hover{border-color:#c5cede}
+  .type svg{flex:none;width:40px;height:40px}
+  .type b{display:block;font-family:var(--display);font-weight:600;font-size:16px}
+  .type span{font-size:12px;color:var(--mute)}
+  .type.on{border-color:var(--red);background:var(--red-soft)}
+  .type.on b{color:var(--red-dk)}
+
+  /* การ์ด Template (มีภาพตัวอย่างป้าย) */
+  .tpl-group{font-size:12px;font-weight:600;color:var(--mute);letter-spacing:.4px;text-transform:uppercase;margin:12px 0 6px}
+  .tpls{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+  .tpl{border:2px solid var(--line);background:#fff;border-radius:10px;padding:8px;cursor:pointer;font:inherit;color:var(--ink);
+    text-align:left;display:flex;flex-direction:column;gap:6px;transition:border-color .15s,transform .1s}
+  .tpl:hover{transform:translateY(-1px)}
+  .tpl.on{border-color:var(--red);box-shadow:0 0 0 3px var(--red-soft)}
+  /* ภาพจำลอง (ใช้เมื่อยังไม่มีภาพจริง) */
+  .mini{background:#fff}
+  .mini i{position:absolute;left:8%;height:6%;min-height:4px;border-radius:3px;background:rgba(20,33,61,.18)}
+  .mini i:nth-child(1){top:14%;right:40%} .mini i:nth-child(2){top:27%;right:55%}
+  .mini em{position:absolute;right:8%;bottom:22%;font-style:normal;font-family:var(--display);font-weight:700;font-size:clamp(12px,2.2vw,18px);color:var(--ink)}
+  .mini .band{position:absolute;left:0;right:0;bottom:0;height:16%}
+  .tpl small{font-size:12px;line-height:1.3;font-weight:600}
+
+  /* ภาพตัวอย่างจริง (Admin อัปโหลด) */
+  .thumb{aspect-ratio:794/562;border-radius:6px;border:1px solid var(--line);overflow:hidden;background:var(--paper);position:relative}
+  .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .thumb.loading{background:linear-gradient(90deg,var(--paper) 25%,#e9edf5 50%,var(--paper) 75%);background-size:200% 100%;animation:shimmer 1.2s infinite}
+  @keyframes shimmer{to{background-position:-200% 0}}
+  .zoom{position:absolute;right:5px;top:5px;width:28px;height:28px;border-radius:8px;border:0;background:rgba(20,33,61,.7);color:#fff;
+    cursor:pointer;font-size:14px;display:grid;place-items:center}
+  .tpl .thumb{height:auto}
+  .tpl-current{display:flex;gap:12px;align-items:center;padding:10px;border:1.5px solid var(--line);border-radius:12px;background:var(--paper)}
+  .tpl-cur-thumb{width:96px;flex:none;padding:0;border:0;background:none;cursor:zoom-in}
+  .tpl-cur-thumb .thumb{width:96px}
+  .tpl-cur-text{flex:1;min-width:0}
+  .tpl-cur-text b{display:block;font-family:var(--display);font-weight:600;font-size:16px;line-height:1.3;overflow-wrap:anywhere}
+  .gallery{margin-top:10px;animation:slide .25s ease}
+  .lightbox{position:fixed;inset:0;z-index:50;background:rgba(10,16,30,.82);display:flex;flex-direction:column;gap:12px;
+    align-items:center;justify-content:center;padding:16px;animation:fade .2s ease}
+  .lightbox figure{margin:0;max-width:min(860px,100%);text-align:center}
+  .lightbox img{max-width:100%;max-height:72vh;border-radius:10px;background:#fff;box-shadow:0 20px 50px rgba(0,0,0,.4)}
+  .lightbox figcaption{color:#fff;font-family:var(--display);font-size:18px;margin-top:10px}
+  @keyframes fade{from{opacity:0}}
+
+  /* ---------- Admin: จัดการรูปแบบป้าย ---------- */
+  .tabs{display:flex;gap:6px;width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:4px;max-width:420px}
+  .tabs button{flex:1;border:0;background:transparent;color:#c7cfe2;padding:9px 16px;border-radius:9px;font:inherit;font-weight:600;cursor:pointer;min-height:42px}
+  .tabs button.on{background:var(--tag);color:var(--ink)}
+  .tplrow{display:grid;grid-template-columns:110px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line)}
+  .tplrow:last-child{border-bottom:0}
+  .tplrow.off>.thumb,.tplrow.off>.who{opacity:.5}
+  .tplrow .acts{flex-wrap:wrap;justify-content:flex-end}
+  .noimg{display:grid;place-items:center;height:100%;font-size:12px;color:var(--mute)}
+  .imgpick{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .imgpick .thumb{width:200px}
+  .switch{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px;color:var(--ink);margin:0;cursor:pointer}
+
+  /* ---------- สแกนบาร์โค้ด ---------- */
+  .scanbtn{width:100%;margin-top:8px;border:2px dashed var(--red);color:var(--red-dk);background:var(--red-soft);min-height:54px;font-size:16px}
+  .scanbtn:hover{border-color:var(--red-dk)}
+  .scanner{position:fixed;inset:0;z-index:60;background:#0b1020;color:#fff;display:flex;flex-direction:column}
+  .scan-top{display:flex;gap:10px;align-items:center;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px}
+  .scan-top>b{flex:1;font-family:var(--display);font-size:18px}
+  .scan-view{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+  #scanVideo{width:100%;height:100%;object-fit:cover;display:block;background:#000}
+  .scan-detail{font-size:12px;color:#8b95ad;min-height:16px;overflow-wrap:anywhere}
+  .scan-frame{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+  .scan-frame i{width:min(78vw,340px);height:150px;border:3px solid var(--tag);border-radius:14px;box-shadow:0 0 0 2000px rgba(0,0,0,.35);position:relative}
+  .scan-frame i::after{content:"";position:absolute;left:8px;right:8px;top:50%;height:2px;background:var(--red);box-shadow:0 0 10px var(--red);animation:laser 1.6s ease-in-out infinite}
+  @keyframes laser{50%{transform:translateY(-55px)}}
+  .scan-off{position:absolute;inset:0;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;text-align:center;padding:20px;color:#c7cfe2;background:#0b1020}
+  .scan-off b{font-family:var(--display);font-size:18px;color:#fff}
+  .scan-bottom{padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:10px;background:#0b1020}
+  .scan-status{min-height:24px;font-size:15px}
+  .scan-status.ok{color:#7ee2a8}.scan-status.err{color:#ff9b9b}
+  .scan-log{list-style:none;margin:0;padding:0;max-height:110px;overflow:auto;font-size:13px;color:#c7cfe2}
+  .scan-log li{display:flex;gap:8px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+  .scan-log .mono{color:#fff}
+  .scan-flash{animation:sflash .35s ease}
+  @keyframes sflash{0%{box-shadow:inset 0 0 0 6px #7ee2a8}}
+  .stat.light{background:var(--paper);border-color:var(--line)}
+  .stat.light b{color:var(--ink)} .stat.light span{color:var(--mute)}
+  .progress{height:10px;border-radius:99px;background:var(--paper);overflow:hidden;margin-top:12px;border:1px solid var(--line)}
+  .progress i{display:block;height:100%;width:0;background:var(--red);transition:width .3s}
+  #lookupHint.ok{color:var(--ok)} #lookupHint.err{color:var(--bad)}
+  .item .name{font-size:13px;color:var(--mute);line-height:1.35;overflow-wrap:anywhere}
+  .item .name.warn{color:var(--bad)}
+
+  /* ---------- รายการสินค้า (แบบใบเสร็จ) ---------- */
+  .items{list-style:none;margin:0;padding:0}
+  .item{display:grid;grid-template-columns:28px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line)}
+  .item:last-child{border-bottom:0}
+  .item .no{color:var(--mute);font-size:13px;text-align:right}
+  .item .art{font-family:var(--mono);font-weight:700;font-size:16px}
+  .item .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}
+  .item.flash{animation:flash .9s ease}
+  @keyframes flash{0%{background:var(--tag-soft)}100%{background:transparent}}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--paper);color:var(--ink-2);border:1px solid var(--line);max-width:100%}
+  .chip .dot{width:8px;height:8px;border-radius:50%;border:1px solid rgba(0,0,0,.15);flex:none}
+  .chip.red{background:var(--red-soft);color:var(--red-dk);border-color:transparent}
+  .chip.blue{background:var(--blue-soft);color:var(--blue);border-color:transparent}
+  .stepper{display:flex;align-items:center;border:1.5px solid var(--line);border-radius:10px;overflow:hidden}
+  .stepper button{width:36px;height:38px;border:0;background:var(--paper);font-size:18px;cursor:pointer;color:var(--ink)}
+  .stepper input{width:44px;min-height:38px;border:0;border-radius:0;text-align:center;padding:0;font-weight:700}
+  .stepper input:focus{box-shadow:none}
+  .del{width:38px;height:38px;border-radius:10px;border:0;background:transparent;color:var(--mute);cursor:pointer;font-size:18px}
+  .del:hover{background:var(--bad-soft);color:var(--bad)}
+  .empty{text-align:center;padding:26px 10px;color:var(--mute)}
+  .empty b{display:block;font-family:var(--display);font-weight:600;color:var(--ink);font-size:16px;margin-bottom:2px}
+
+  /* แถบส่งคำขอติดล่างจอ */
+  .submitbar{position:fixed;left:0;right:0;bottom:0;z-index:20;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
+    border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
+  .submitbar .in{max-width:1000px;margin:0 auto;display:flex;gap:12px;align-items:center}
+  .submitbar .sum{flex:1;min-width:0;font-size:14px;color:var(--mute)}
+  .submitbar .sum b{color:var(--ink);font-family:var(--display);font-size:18px}
+  .submitbar .btn{min-width:160px}
+
+  /* ---------- ข้อความ / Toast ---------- */
+  .msg{padding:10px 12px;border-radius:10px;margin:10px 0 0;display:none;font-size:14px}
+  .msg.ok{display:block;background:var(--ok-soft);color:var(--ok)} .msg.err{display:block;background:var(--bad-soft);color:var(--bad)}
+  .ob{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;border-radius:12px;margin-bottom:10px;font-size:14px;
+    box-shadow:var(--shadow);animation:slide .3s ease}
+  @keyframes slide{from{opacity:.0;transform:translateY(-6px)}}
+  .ob.sending{background:var(--ink);color:#fff} .ob.ok{background:var(--ok);color:#fff} .ob.err{background:var(--bad-soft);color:var(--bad);border:1px solid #f3c2c2}
+  .ob span{flex:1 1 200px} .ob .btn{min-height:36px;padding:5px 12px;font-size:14px}
+  .spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:8px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- Admin ---------- */
+  .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%}
+  .stat{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:10px 14px}
+  .stat b{display:block;font-family:var(--display);font-size:26px;line-height:1.1;color:var(--tag);font-variant-numeric:tabular-nums}
+  .stat span{font-size:13px;color:#c7cfe2}
+  .toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
+  .toolbar2{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .checkline{display:flex;gap:10px;align-items:center;margin:0;color:var(--ink);font-size:14px;font-weight:600;cursor:pointer}
+  .chk{width:22px;height:22px;min-height:0;accent-color:var(--red);cursor:pointer;flex:none}
+  .req{border:1.5px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden;background:#fff;transition:border-color .15s,opacity .3s,transform .3s}
+  .req.sel{border-color:var(--red);box-shadow:0 0 0 3px var(--red-soft)}
+  .req.out{opacity:0;transform:translateX(30px)}
+  .req-head{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px}
+  .avatar{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;color:#fff;font-family:var(--display);font-weight:600;font-size:18px}
+  .who b{display:block;font-family:var(--display);font-weight:600;font-size:16px;line-height:1.3;overflow-wrap:anywhere}
+  .who .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .acts{display:flex;gap:8px}
+  .req-body{border-top:1px dashed var(--line);padding:4px 12px 10px;background:#fbfcfe}
+  .tablewrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+  th{color:var(--mute);font-weight:600;font-size:12px;letter-spacing:.3px}
+  .pill{display:inline-block;padding:2px 10px;border-radius:99px;background:var(--tag-soft);color:#8a5a00;font-size:12px;font-weight:700}
+
+  .chip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media (max-width:640px){
+    .item{grid-template-columns:minmax(0,1fr) auto auto;gap:8px}
+    .item .no{display:none}
+    .stat{padding:8px 10px}
+    .stat span{font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .types{grid-template-columns:1fr 1fr}
+    .tplrow{grid-template-columns:90px minmax(0,1fr)}
+    .tplrow .acts{grid-column:1/-1}
+    .tpl-current{flex-wrap:wrap}
+    .tpl-current .btn{flex:1 1 100%}
+    .type{flex-direction:column;align-items:flex-start;gap:6px}
+    .req-head{grid-template-columns:auto auto minmax(0,1fr)}
+    .acts{grid-column:1/-1;justify-content:flex-end}
+    .acts .btn{flex:1}
+    .stat b{font-size:22px}
+    .submitbar .btn{min-width:0;flex:1}
+    .submitbar .in{flex-wrap:wrap}
+    .submitbar .sum{flex:1 1 100%}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+</head>
+<body>
+<header class="hero">
+  <div class="hero-in">
+    <div class="grow">
+      <h1>ขอป้ายราคา / Reprint Railcard</h1>
+      <p>กรอก Article No. เลือกรูปแบบป้าย แล้วกดส่ง ทีม Office ได้รับทันที</p>
+    </div>
+    <div class="pricetag" id="tag" aria-live="polite"><b id="tagNum">0</b><small>รายการ</small></div>
+    <a class="btn sm ghost" href="#" id="adminLink" target="_top">หน้า Admin →</a>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- สถานะคำขอที่กำลังส่ง -->
+  <div id="outbox"></div>
+
+  <section class="card">
+    <div class="card-h"><span class="step">1</span><h2>ผู้ขอ และประเภทคำขอ</h2></div>
+    <label for="requester">ชื่อผู้ขอ / แผนก *</label>
+    <input id="requester" maxlength="60" placeholder="เช่น สมชาย - Dry Food" autocomplete="name">
+    <div class="types" id="typeSeg" style="margin-top:12px">
+      <button type="button" class="type on" data-type="Signage">
+        <svg viewBox="0 0 40 40" aria-hidden="true"><rect x="3" y="7" width="34" height="24" rx="3" fill="#ffc93c"/><rect x="7" y="11" width="14" height="3" rx="1.5" fill="#14213d" opacity=".5"/><rect x="7" y="16" width="9" height="3" rx="1.5" fill="#14213d" opacity=".35"/><text x="33" y="27" text-anchor="end" font-size="10" font-weight="700" fill="#e63946" font-family="sans-serif">฿99</text><rect x="17" y="31" width="6" height="6" fill="#14213d"/></svg>
+        <div><b>Signage</b><span>ป้ายราคา / ป้ายโปร</span></div>
+      </button>
+      <button type="button" class="type" data-type="Railcard">
+        <svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="14" width="36" height="14" rx="2" fill="#fff" stroke="#14213d" stroke-width="2"/><rect x="6" y="18" width="12" height="2.5" rx="1" fill="#14213d" opacity=".5"/><rect x="6" y="22" width="8" height="2.5" rx="1" fill="#14213d" opacity=".35"/><text x="34" y="25" text-anchor="end" font-size="8" font-weight="700" fill="#14213d" font-family="sans-serif">35.00</text></svg>
+        <div><b>Railcard</b><span>ป้ายราคาที่ชั้นวาง</span></div>
+      </button>
+    </div>
+  </section>
+
+  <section class="card" id="tplCard">
+    <div class="card-h"><span class="step">2</span><h2>รูปแบบป้าย</h2>
+      <button class="btn sm" id="applyAllBtn" type="button" title="เปลี่ยนรูปแบบและขนาดของทุกรายการในลิสต์">ใช้กับทุกรายการ</button>
+    </div>
+    <!-- รูปแบบที่เลือกอยู่ (แสดงเสมอ) + ปุ่มเปิด/ซ่อนแกลเลอรี -->
+    <div class="tpl-current">
+      <button type="button" class="tpl-cur-thumb" id="curThumb" aria-label="ดูภาพตัวอย่างขนาดใหญ่"></button>
+      <div class="tpl-cur-text">
+        <small class="muted" id="curGroup"></small>
+        <b id="curName"></b>
+      </div>
+      <button type="button" class="btn sm" id="galleryBtn" aria-expanded="false">เปลี่ยนรูปแบบ ▾</button>
+    </div>
+    <div id="tplGallery" class="gallery hide"><div id="tplList"></div></div>
+
+    <label style="margin-top:14px">ขนาด</label>
+    <div class="seg" id="sizeSeg" style="max-width:360px">
+      <button type="button" data-size="A3">A3</button>
+      <button type="button" data-size="A4" class="on">A4</button>
+      <button type="button" data-size="A5">A5</button>
+      <button type="button" data-size="A6">A6</button>
+    </div>
+    <p class="muted" style="margin:10px 0 0">รูปแบบที่เลือกจะใช้กับสินค้าที่เพิ่มหลังจากนี้ ถ้าต้องการให้ทุกรายการในลิสต์เป็นแบบเดียวกัน กด "ใช้กับทุกรายการ"</p>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><span class="step" id="stepAdd">3</span><h2>เพิ่มสินค้า</h2></div>
+    <div class="row">
+      <div style="flex:3 1 180px"><label for="article">Article No. (กด Enter เพื่อเพิ่ม)</label>
+        <input id="article" class="mono" inputmode="numeric" enterkeyhint="done" placeholder="เช่น 200556" autocomplete="off"></div>
+      <div style="flex:1 1 90px"><label for="copies">จำนวน</label>
+        <input id="copies" type="number" min="1" max="99" value="1" inputmode="numeric"></div>
+      <div class="fit"><button class="btn dark" id="addBtn" type="button">+ เพิ่ม</button></div>
+    </div>
+    <div id="lookupHint" class="muted" aria-live="polite" style="min-height:20px;margin-top:6px"></div>
+    <button class="btn scanbtn" id="scanBtn" type="button">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M16 8v8"/></svg>
+      สแกนบาร์โค้ดสินค้า
+    </button>
+    <details style="margin-top:14px">
+      <summary class="muted" style="cursor:pointer;font-weight:600">📋 วางหลายรายการพร้อมกัน (จาก Excel / LINE / Notes)</summary>
+      <p class="muted">1 บรรทัด = 1 รายการ รูปแบบ <span class="mono">Article จำนวน</span> เช่น <span class="mono">200556 2</span> ถ้าไม่ใส่จำนวน = 1 ใบ</p>
+      <textarea id="bulk" placeholder="200556 2&#10;200555&#10;123456, 3"></textarea>
+      <button class="btn" id="bulkBtn" type="button" style="margin-top:8px">เพิ่มจากข้อความ</button>
+    </details>
+    <div id="addMsg" class="msg"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><h2>รายการที่จะขอ</h2>
+      <button class="btn sm danger" id="clearBtn" type="button">ล้างทั้งหมด</button></div>
+    <ul class="items" id="list"></ul>
+    <div class="empty" id="empty"><b>ยังไม่มีรายการ</b>พิมพ์ Article No. ด้านบน แล้วกด Enter</div>
+    <div style="margin-top:12px"><label for="note">หมายเหตุ (ถ้ามี)</label><input id="note" maxlength="200" placeholder="เช่น ต้องการก่อน 14:00"></div>
+    <div id="submitMsg" class="msg"></div>
+  </section>
+</main>
+
+<!-- หน้าสแกนบาร์โค้ด -->
+<div class="scanner hide" id="scanner" role="dialog" aria-modal="true" aria-label="สแกนบาร์โค้ด">
+  <div class="scan-top">
+    <b>สแกนบาร์โค้ด</b>
+    <span class="pricetag" style="padding:3px 10px 3px 18px"><b id="scanCount" style="font-size:16px">0</b><small>ชิ้น</small></span>
+    <button class="btn sm" id="scanDone" type="button">เสร็จ</button>
+  </div>
+  <div class="scan-view">
+    <video id="scanVideo" playsinline muted autoplay></video>
+    <div class="scan-frame" aria-hidden="true"><i></i></div>
+    <div class="scan-off hide" id="scanOff">
+      <b>เปิดกล้องสดไม่ได้</b>
+      <span>ใช้ปุ่ม "ถ่ายรูปบาร์โค้ด" ด้านล่างแทนได้เลย</span>
+    </div>
+  </div>
+  <div class="scan-bottom">
+    <div class="scan-status" id="scanStatus" aria-live="polite">เล็งกล้องไปที่บาร์โค้ดบนสินค้า</div>
+    <div class="scan-detail" id="scanDetail"></div>
+    <ul class="scan-log" id="scanLog"></ul>
+    <label class="btn" for="scanPhoto">📷 ถ่ายรูปบาร์โค้ด</label>
+    <input id="scanPhoto" type="file" accept="image/*" capture="environment" class="hide">
+  </div>
+</div>
+
+<!-- ดูภาพตัวอย่างป้ายขนาดใหญ่ -->
+<div class="lightbox hide" id="lightbox" role="dialog" aria-modal="true" aria-label="ภาพตัวอย่างป้าย">
+  <figure><img id="lbImg" alt=""><figcaption id="lbCap"></figcaption></figure>
+  <button type="button" class="btn sm" id="lbClose">ปิด ✕</button>
+</div>
+
+<div class="submitbar">
+  <div class="in">
+    <div class="sum"><b id="sumItems">0</b> รายการ · <b id="sumCopies">0</b> ใบ</div>
+    <button class="btn pri" id="submitBtn" type="button">ส่งคำขอ</button>
+  </div>
+</div>
+
+<script>
+  /* ===================== ตั้งค่า =====================
+   * ลิงก์ Web App ของ GAS (ลงท้ายด้วย /exec)
+   * ดูได้ที่ Apps Script → Deploy → Manage deployments → Web app URL
+   * =================================================== */
+  var API_URL = 'https://script.google.com/macros/s/AKfycbxt-bLPFy6i_I2Pm8wcb6F8mDSbtVHjj46X7g2av4x0nw7RPuByDlIP2gWLoF5dLsTbrg/exec';
+</script>
+<script>
+/**
+ * ตัวเชื่อม: จำลอง google.script.run ให้เรียก GAS ผ่าน API (doPost) แทน
+ * → โค้ดหน้า พนง. (StaffJs) ใช้ได้เหมือนเดิมโดยไม่ต้องแก้
+ * ส่งเป็น text/plain (simple request) → ไม่ติด CORS preflight
+ */
+(function () {
+  'use strict';
+  var FNS = ['submitRequest', 'lookupProducts', 'getTemplateImages', 'ping'];
+  var CFG_KEY = 'sg_cfg_cache';
+
+  function apiReady() { return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(API_URL); }
+
+  function callApi(fn, args) {
+    if (!apiReady()) return Promise.reject(new Error('ยังไม่ได้ตั้งค่า API_URL ในไฟล์ index.html'));
+    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, args: args || [] }) })
+      .then(function (r) { if (!r.ok) throw new Error('เซิร์ฟเวอร์ตอบกลับ ' + r.status); return r.json(); })
+      .then(function (j) { if (!j || !j.ok) throw new Error((j && j.message) || 'เกิดข้อผิดพลาด'); return j.result; });
+  }
+
+  function Runner() { this._s = null; this._f = null; }
+  Runner.prototype.withSuccessHandler = function (f) { this._s = f; return this; };
+  Runner.prototype.withFailureHandler = function (f) { this._f = f; return this; };
+  FNS.forEach(function (fn) {
+    Runner.prototype[fn] = function () {
+      var self = this, args = Array.prototype.slice.call(arguments);
+      callApi(fn, args).then(function (r) { if (self._s) self._s(r); }, function (e) { if (self._f) self._f(e); });
+    };
+  });
+  window.google = { script: {} };
+  Object.defineProperty(window.google.script, 'run', { get: function () { return new Runner(); } });
+
+  function banner(text) {
+    var b = document.getElementById('bootBanner');
+    if (!b) {
+      b = document.createElement('div'); b.id = 'bootBanner';
+      b.style.cssText = 'position:fixed;left:12px;right:12px;top:12px;z-index:99;padding:12px 14px;border-radius:12px;background:#fdeeee;color:#b42318;font:15px/1.4 Sarabun,system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.2)';
+      document.body.appendChild(b);
+    }
+    b.textContent = text; b.hidden = !text;
+  }
+
+  function applyCfg(c) {
+    window.APP_TEMPLATES = (c && Array.isArray(c.templates)) ? c.templates : [];
+    window.APP_PRODUCTS = Number(c && c.productCount) || 0;
+  }
+
+  /** เริ่มแอป: มีค่าที่จำไว้ → เปิดทันที แล้วอัปเดตเบื้องหลัง · ไม่มี → รอโหลดจาก GAS ก่อน */
+  window.__bootApp = function () {
+    var a = document.getElementById('adminLink');
+    if (a && apiReady()) a.href = API_URL + '?page=admin';
+    if (!apiReady()) { banner('ยังไม่ได้ตั้งค่า API_URL ในไฟล์ index.html กรุณาแจ้ง Admin'); }
+
+    var cached = null;
+    try { cached = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); } catch (e) {}
+    var started = false;
+    function start(c) { if (started) return; started = true; applyCfg(c); window.__startApp(); }
+
+    if (cached) start(cached);
+    else banner('กำลังเชื่อมต่อ…');
+
+    callApi('getConfig', []).then(function (c) {
+      try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (e) {}
+      if (!started) { banner(''); start(c); }
+    }).catch(function (e) {
+      if (!started) { banner('เชื่อมต่อไม่สำเร็จ: ' + e.message + ' (ยังกรอกคำขอได้ ระบบจะส่งให้เมื่อเชื่อมต่อได้)'); start({}); }
+    });
+  };
+})();
+</script>
+
+<script>
+/**
+ * ScanJs — ตัวอ่านบาร์โค้ด EAN-13 / EAN-8 / UPC-A เขียนเอง ไม่ต้องโหลดไลบรารีภายนอก
+ *
+ * หลักการ: ลากเส้นสแกนหลายเส้นหลายมุมผ่านภาพ → แปลงความสว่างตามเส้นเป็น ขาว/ดำ
+ * → วัดความกว้างแท่ง → จับคู่กับรูปแบบตัวเลขมาตรฐาน → ตรวจ check digit
+ * ผลที่ผ่าน check digit เท่านั้นถึงจะนับ จึงแทบไม่มีโอกาสอ่านเลขผิด
+ *
+ * ใช้: BarcodeScan.decodeImage(canvasOrImage) → '8859103500113' | null
+ *      BarcodeScan.decodeGray(gray, w, h, opts)
+ */
+(function (root) {
+  'use strict';
+
+  // ความกว้างแท่ง (หน่วย module) ของตัวเลข 0-9 · L = ฝั่งซ้ายแบบคี่, G = กลับด้าน, R = เท่ากับ L
+  var L = ['3211', '2221', '2122', '1411', '1132', '1231', '1114', '1312', '1213', '3112']
+    .map(function (s) { return s.split('').map(Number); });
+  var G = L.map(function (p) { return p.slice().reverse(); });
+  var PARITY = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+  var MAX_DIGIT_ERR = 1.5;
+
+  function bestDigit(runs, off, sets) {
+    var t = runs[off] + runs[off + 1] + runs[off + 2] + runs[off + 3];
+    var best = { d: -1, err: 99, set: '' };
+    for (var s = 0; s < sets.length; s++) {
+      var tbl = sets[s].tbl;
+      for (var d = 0; d < 10; d++) {
+        var p = tbl[d], e = 0;
+        for (var k = 0; k < 4; k++) e += Math.abs(runs[off + k] * 7 / t - p[k]);
+        if (e < best.err) best = { d: d, err: e, set: sets[s].name };
+      }
+    }
+    return best.err <= MAX_DIGIT_ERR ? best : null;
+  }
+
+  function guardOk(runs, off, count, m) {
+    for (var k = 0; k < count; k++) { var r = runs[off + k] / m; if (r < 0.35 || r > 2.6) return false; }
+    return true;
+  }
+
+  function eanCheck(digits) {
+    var n = digits.length, sum = 0;
+    for (var i = 0; i < n - 1; i++) sum += digits[n - 2 - i] * (i % 2 === 0 ? 3 : 1);
+    return (10 - (sum % 10)) % 10 === digits[n - 1];
+  }
+
+  var LG = [{ name: 'L', tbl: L }, { name: 'G', tbl: G }];
+  var ONLY_L = [{ name: 'L', tbl: L }];
+
+  /**
+   * ชดเชย "หมึกบวม": ภาพเบลอทำให้แท่งดำดูหนาขึ้น/ช่องขาวแคบลงเท่าๆ กันทั้งโค้ด
+   * แท่ง guard ทุกแท่งกว้าง 1 module พอดี → ใช้วัดค่าเพี้ยน แล้วหักออกจากทุกแท่ง
+   * blacks/whites = ตำแหน่ง (นับจาก i) ของแท่ง guard ดำ/ขาว
+   */
+  function inkCorrect(runs, i, count, blacks, whites) {
+    var sb = 0, sw = 0, k;
+    for (k = 0; k < blacks.length; k++) sb += runs[i + blacks[k]];
+    for (k = 0; k < whites.length; k++) sw += runs[i + whites[k]];
+    var bias = (sb / blacks.length - sw / whites.length) / 2; // >0 = ดำหนาเกิน
+    var out = new Array(count);
+    for (k = 0; k < count; k++) out[k] = Math.max(0.2, runs[i + k] + (k % 2 === 0 ? -bias : bias));
+    return out;
+  }
+  var E13_B = [0, 2, 28, 30, 56, 58], E13_W = [1, 27, 29, 31, 57];
+  var E8_B = [0, 2, 20, 22, 40, 42], E8_W = [1, 19, 21, 23, 41];
+
+  /** runs[i] ต้องเป็นแท่งดำ · คืนเลข 13 หลัก หรือ null */
+  function tryEan13(runs, i) {
+    if (i + 59 > runs.length) return null;
+    var total = 0;
+    for (var k = 0; k < 59; k++) total += runs[i + k];
+    var m = total / 95;
+    if (i > 0 && runs[i - 1] < 2 * m) return null; // ต้องมีพื้นขาวก่อนบาร์โค้ด
+    if (!guardOk(runs, i, 3, m) || !guardOk(runs, i + 27, 5, m) || !guardOk(runs, i + 56, 3, m)) return null;
+    return readEan13(runs, i) || readEan13(inkCorrect(runs, i, 59, E13_B, E13_W), 0);
+  }
+
+  function readEan13(runs, i) {
+    var digits = [], parity = '';
+    for (var a = 0; a < 6; a++) {
+      var b = bestDigit(runs, i + 3 + a * 4, LG); if (!b) return null;
+      digits.push(b.d); parity += b.set;
+    }
+    for (var c = 0; c < 6; c++) {
+      var r = bestDigit(runs, i + 32 + c * 4, ONLY_L); if (!r) return null;
+      digits.push(r.d);
+    }
+    var first = PARITY.indexOf(parity);
+    if (first < 0) return null;
+    digits.unshift(first);
+    return eanCheck(digits) ? digits.join('') : null;
+  }
+
+  function tryEan8(runs, i) {
+    if (i + 43 > runs.length) return null;
+    var total = 0;
+    for (var k = 0; k < 43; k++) total += runs[i + k];
+    var m = total / 67;
+    // EAN-8 สั้น → เข้มงวดกว่า: ต้องมีพื้นขาวทั้งหน้าและหลัง
+    if (i === 0 || runs[i - 1] < 3 * m || (i + 43 < runs.length && runs[i + 43] < 3 * m)) return null;
+    if (!guardOk(runs, i, 3, m) || !guardOk(runs, i + 19, 5, m) || !guardOk(runs, i + 40, 3, m)) return null;
+    return readEan8(runs, i) || readEan8(inkCorrect(runs, i, 43, E8_B, E8_W), 0);
+  }
+
+  function readEan8(runs, i) {
+    var digits = [];
+    for (var a = 0; a < 4; a++) { var b = bestDigit(runs, i + 3 + a * 4, ONLY_L); if (!b) return null; digits.push(b.d); }
+    for (var c = 0; c < 4; c++) { var r = bestDigit(runs, i + 24 + c * 4, ONLY_L); if (!r) return null; digits.push(r.d); }
+    return eanCheck(digits) ? digits.join('') : null;
+  }
+
+  /** ค้นหาบาร์โค้ดในลำดับความกว้างแท่ง (สแกนทั้ง 2 ทิศ) */
+  function decodeRuns(runs, firstBlack, out) {
+    for (var dir = 0; dir < 2; dir++) {
+      var rr = dir ? runs.slice().reverse() : runs;
+      var fb = dir ? ((runs.length - 1) % 2 === (firstBlack ? 0 : 1) ? 0 : 1) : (firstBlack ? 0 : 1);
+      // fb = index แรกที่เป็นสีดำใน rr
+      for (var i = fb; i < rr.length; i += 2) {
+        var code = tryEan13(rr, i) || tryEan8(rr, i);
+        if (code) { out.push(code); i += 40; }
+      }
+    }
+  }
+
+  /** แปลงค่าความสว่างตามเส้นเป็นแท่งขาว/ดำ ด้วยค่าเฉลี่ยเฉพาะที่ (ทนแสงไม่สม่ำเสมอ) */
+  function lineToRuns(v, n, win) {
+    var pre = new Float64Array(n + 1), mn = 255, mx = 0;
+    for (var j = 0; j < n; j++) { pre[j + 1] = pre[j] + v[j]; if (v[j] < mn) mn = v[j]; if (v[j] > mx) mx = v[j]; }
+    if (mx - mn < 28) return null; // เส้นนี้ไม่มีความต่างพอ (พื้นเรียบ)
+    var eps = (mx - mn) * 0.04;
+    // หาขอบแท่งแบบละเอียดกว่า 1 พิกเซล (ประมาณจุดตัดเส้น threshold) → ทนภาพเบลอได้ดีขึ้น
+    var edges = [0], firstBlack = null, cur = -1, prevThr = 0;
+    for (var x = 0; x < n; x++) {
+      var a = Math.max(0, x - win), b = Math.min(n, x + win + 1);
+      var thr = (pre[b] - pre[a]) / (b - a);
+      var bit = v[x] < thr - eps ? 1 : (v[x] > thr + eps ? 0 : (cur < 0 ? 0 : cur));
+      if (cur < 0) { firstBlack = bit === 1; cur = bit; }
+      else if (bit !== cur) {
+        var y0 = v[x - 1] - prevThr, y1 = v[x] - thr, f = 0.5;
+        if (y0 !== y1) f = Math.min(1, Math.max(0, y0 / (y0 - y1)));
+        edges.push(x - 1 + f);
+        cur = bit;
+      }
+      prevThr = thr;
+    }
+    edges.push(n);
+    var runs = new Array(edges.length - 1);
+    for (var k = 0; k < runs.length; k++) runs[k] = Math.max(0.3, edges[k + 1] - edges[k]);
+    return { runs: runs, firstBlack: firstBlack };
+  }
+
+  /**
+   * gray: Uint8Array ขนาด w*h · opts.angles (องศา) · opts.lines (จำนวนเส้นต่อมุม)
+   * คืน { code, votes } หรือ null
+   */
+  function decodeGray(gray, w, h, opts) {
+    opts = opts || {};
+    var angles = opts.angles || [0, 90, 20, -20, 45, -45, 70, -70];
+    var lines = opts.lines || 40;
+    var wins = opts.windows || [10, 24, 48];
+    var votes = {}, best = null;
+    var diag = Math.ceil(Math.sqrt(w * w + h * h));
+    var buf = new Float32Array(diag);
+    var cx = w / 2, cy = h / 2;
+    for (var ai = 0; ai < angles.length; ai++) {
+      var th = angles[ai] * Math.PI / 180, dx = Math.cos(th), dy = Math.sin(th);
+      var px = -dy, py = dx; // ทิศตั้งฉาก (เลื่อนเส้น)
+      var span = Math.abs(px) * w + Math.abs(py) * h;
+      for (var li = 0; li < lines; li++) {
+        var off = ((li + 0.5) / lines - 0.5) * span * 0.96;
+        // เก็บค่าตามเส้น
+        var n = 0;
+        for (var t = -diag / 2; t < diag / 2; t++) {
+          var x = Math.round(cx + px * off + dx * t), y = Math.round(cy + py * off + dy * t);
+          if (x < 0 || y < 0 || x >= w || y >= h) { if (n) break; else continue; }
+          buf[n++] = gray[y * w + x];
+        }
+        if (n < 60) continue;
+        for (var wi = 0; wi < wins.length; wi++) {
+          var res = lineToRuns(buf, n, wins[wi]);
+          if (!res || res.runs.length < 43) continue;
+          var found = [];
+          decodeRuns(res.runs, res.firstBlack, found);
+          for (var f = 0; f < found.length; f++) {
+            var c = found[f];
+            votes[c] = (votes[c] || 0) + 1;
+            if (!best || votes[c] > votes[best]) best = c;
+            if (votes[best] >= (opts.enough || 3)) return { code: best, votes: votes[best] };
+          }
+        }
+      }
+    }
+    // ต้องอ่านได้ตรงกันอย่างน้อย 2 เส้น กันอ่านผิดจากลวดลายที่บังเอิญคล้ายบาร์โค้ด
+    return best && votes[best] >= 2 ? { code: best, votes: votes[best] } : null;
+  }
+
+  /** วาดภาพลง canvas ที่ด้านยาวไม่เกิน maxSide แล้วแปลงเป็นค่าเทา */
+  function toGray(src, maxSide, crop) {
+    var sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
+    var cx = 0, cy = 0, cw = sw, ch = sh;
+    if (crop) { cw = Math.round(sw * crop.w); ch = Math.round(sh * crop.h); cx = Math.round((sw - cw) / 2); cy = Math.round((sh - ch) / 2); }
+    var scale = Math.min(1, maxSide / Math.max(cw, ch));
+    var w = Math.max(1, Math.round(cw * scale)), h = Math.max(1, Math.round(ch * scale));
+    var cv = toGray.cv || (toGray.cv = document.createElement('canvas'));
+    cv.width = w; cv.height = h;
+    var ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(src, cx, cy, cw, ch, 0, 0, w, h);
+    var d = ctx.getImageData(0, 0, w, h).data, g = new Uint8Array(w * h);
+    for (var i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+    return { gray: g, w: w, h: h };
+  }
+
+  /** อ่านจากรูปถ่าย: ลองหลายขนาด (บาร์โค้ดเล็กในรูปใหญ่ต้องใช้ความละเอียดสูง) */
+  var PHOTO_PASSES = [
+    { size: 1100, lines: 48 },
+    { size: 1700, lines: 40 },
+    { size: 2600, lines: 40, angles: [0, 90, 12, -12, 30, -30, 60, -60] },
+    { size: 4200, lines: 64, angles: [0, 90, 8, -8, 25, -25], windows: [10, 20] } // บาร์โค้ดเล็ก/อยู่ไกล
+  ];
+  function decodeImage(img) {
+    var side = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
+    for (var i = 0; i < PHOTO_PASSES.length; i++) {
+      var p = PHOTO_PASSES[i];
+      if (i > 0 && PHOTO_PASSES[i - 1].size >= side) break; // รูปเล็กกว่านี้แล้ว ไม่ต้องขยาย
+      var g = toGray(img, p.size);
+      var r = decodeGray(g.gray, g.w, g.h, { lines: p.lines, angles: p.angles, windows: p.windows, enough: 2 });
+      if (r) return r.code;
+    }
+    return null;
+  }
+
+  /** อ่านจากเฟรมวิดีโอ (เร็ว: เฉพาะกลางภาพ, มุมหลักๆ) */
+  function decodeVideo(video) {
+    var g = toGray(video, 900, { w: 0.9, h: 0.6 });
+    var r = decodeGray(g.gray, g.w, g.h, { angles: [0, 90, 15, -15], lines: 18, windows: [10, 24], enough: 2 });
+    return r && r.votes >= 2 ? r.code : null;
+  }
+
+  root.BarcodeScan = { decodeGray: decodeGray, decodeImage: decodeImage, decodeVideo: decodeVideo, toGray: toGray };
+})(typeof window !== 'undefined' ? window : this);
+</script>
+
+<script>
+window.__startApp = function () {
+
+(function () {
+  'use strict';
+  var ARTICLE_RE = /^\d{4,10}$/;
+  var MAX_ITEMS = 500;
+  var TEMPLATES = Array.isArray(window.APP_TEMPLATES) && window.APP_TEMPLATES.length
+    ? window.APP_TEMPLATES : [{ name: 'Plain-ไม่มีพื้นหลัง', group: 'Matching', color: '#ffffff' }];
+  var TPL_BY_NAME = {}; TEMPLATES.forEach(function (t) { TPL_BY_NAME[t.name] = t; });
+
+  var state = { type: 'Signage', size: 'A4', template: TEMPLATES[0].name, items: [] }; // items: {article, copies, size, template}
+  var outbox = [];
+  var lastAddedKey = '';
+  var $ = function (id) { return document.getElementById(id); };
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  /* ---------- localStorage ---------- */
+  function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function restore(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+  function saveDraft() { store('sg_draft', { requester: $('requester').value, type: state.type, size: state.size, template: state.template, items: state.items }); }
+  function saveOutbox() { store('sg_outbox', outbox.filter(function (o) { return o.status !== 'ok'; })); }
+
+  function msg(box, text, ok) { box.textContent = text; box.className = 'msg ' + (ok ? 'ok' : 'err'); }
+  function clearMsg(box) { box.className = 'msg'; box.textContent = ''; }
+
+  function newRequestId() {
+    var d = new Date(), p = function (n) { return ('0' + n).slice(-2); };
+    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', rnd = '';
+    for (var i = 0; i < 4; i++) rnd += chars.charAt(Math.floor(Math.random() * chars.length));
+    return 'R-' + String(d.getFullYear()).slice(2) + p(d.getMonth() + 1) + p(d.getDate()) +
+      p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '-' + rnd;
+  }
+
+  /* ---------- Template picker (ภาพตัวอย่างจริงจาก Admin) ---------- */
+  var IMAGES = {};          // id -> dataUri (โหลดตามมาหลังเปิดหน้า)
+  var imagesLoaded = false;
+
+  /** กล่องภาพ: ถ้ามีภาพจริงใช้ภาพ ถ้าไม่มีใช้ภาพจำลองสีประจำแบบ */
+  function thumbFor(t, withZoom) {
+    var img = t && IMAGES[t.id];
+    var box;
+    if (img) {
+      box = el('div', 'thumb');
+      var im = el('img'); im.src = img; im.alt = t.name; im.loading = 'lazy';
+      box.appendChild(im);
+    } else if (t && t.hasImage && !imagesLoaded) {
+      box = el('div', 'thumb loading');
+    } else {
+      box = el('div', 'thumb mini');
+      box.appendChild(el('i')); box.appendChild(el('i'));
+      var band = el('div', 'band'); band.style.background = (t && t.color) || '#cbd5e1'; box.appendChild(band);
+      box.appendChild(el('em', null, '฿99'));
+    }
+    if (withZoom && img) {
+      var z = el('span', 'zoom', '⤢'); z.setAttribute('role', 'button'); z.setAttribute('aria-label', 'ขยายภาพ ' + t.name);
+      z.addEventListener('click', function (e) { e.stopPropagation(); openLightbox(t); });
+      box.appendChild(z);
+    }
+    return box;
+  }
+
+  function renderCurrent() {
+    var t = TPL_BY_NAME[state.template] || TEMPLATES[0];
+    var th = $('curThumb'); th.textContent = ''; th.appendChild(thumbFor(t, false));
+    $('curName').textContent = t.name;
+    $('curGroup').textContent = 'รูปแบบที่เลือก · ' + (t.group || '');
+  }
+
+  function renderTemplates() {
+    var box = $('tplList'); box.textContent = '';
+    var groups = {}, order = [];
+    TEMPLATES.forEach(function (t) { var g = t.group || 'อื่นๆ'; if (!groups[g]) { groups[g] = []; order.push(g); } groups[g].push(t); });
+    order.forEach(function (g) {
+      box.appendChild(el('div', 'tpl-group', g));
+      var grid = el('div', 'tpls');
+      groups[g].forEach(function (t) {
+        var b = el('button', 'tpl' + (t.name === state.template ? ' on' : ''));
+        b.type = 'button';
+        b.appendChild(thumbFor(t, true));
+        b.appendChild(el('small', null, t.name));
+        b.addEventListener('click', function () {
+          state.template = t.name; saveDraft();
+          renderTemplates(); renderCurrent();
+          setGallery(false); // เลือกแล้วพับเก็บ ไม่เกะกะ
+        });
+        grid.appendChild(b);
+      });
+      box.appendChild(grid);
+    });
+    renderCurrent();
+  }
+
+  function setGallery(open) {
+    $('tplGallery').classList.toggle('hide', !open);
+    $('galleryBtn').textContent = open ? 'ซ่อน ▴' : 'เปลี่ยนรูปแบบ ▾';
+    $('galleryBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  function openLightbox(t) {
+    if (!t || !IMAGES[t.id]) return;
+    $('lbImg').src = IMAGES[t.id]; $('lbImg').alt = t.name; $('lbCap').textContent = t.name;
+    $('lightbox').classList.remove('hide');
+  }
+  function closeLightbox() { $('lightbox').classList.add('hide'); $('lbImg').removeAttribute('src'); }
+
+  function loadImages() {
+    if (!TEMPLATES.some(function (t) { return t.hasImage; })) { imagesLoaded = true; return; }
+    google.script.run
+      .withSuccessHandler(function (res) {
+        imagesLoaded = true;
+        if (res && res.ok) IMAGES = res.images || {};
+        renderTemplates();
+      })
+      .withFailureHandler(function () { imagesLoaded = true; renderTemplates(); }) // ไม่มีภาพก็ยังใช้งานได้
+      .getTemplateImages();
+  }
+
+  function setSize(s) {
+    state.size = s;
+    document.querySelectorAll('#sizeSeg button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-size') === s); });
+    saveDraft();
+  }
+
+  function setType(t) {
+    state.type = t;
+    document.querySelectorAll('#typeSeg .type').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-type') === t); });
+    var isSign = t === 'Signage';
+    $('tplCard').classList.toggle('hide', !isSign);
+    $('stepAdd').textContent = isSign ? '3' : '2';
+    // รายการที่มีอยู่ ปรับให้ตรงประเภท
+    state.items.forEach(function (i) {
+      i.size = isSign ? (i.size || state.size) : '';
+      i.template = isSign ? (i.template || state.template) : '';
+    });
+    render(); saveDraft();
+  }
+
+  /* ---------- Items ---------- */
+  function keyOf(i) { return i.article + '|' + i.size + '|' + i.template; }
+
+  function addItem(article, copies) {
+    article = String(article).trim();
+    copies = parseInt(copies, 10);
+    if (!ARTICLE_RE.test(article)) return 'Article No. "' + article + '" ไม่ถูกต้อง (ต้องเป็นตัวเลข 4-10 หลัก)';
+    if (!(copies >= 1 && copies <= 99)) return 'จำนวนต้องเป็น 1-99';
+    var isSign = state.type === 'Signage';
+    var item = { article: article, copies: copies, size: isSign ? state.size : '', template: isSign ? state.template : '' };
+    var k = keyOf(item);
+    for (var i = 0; i < state.items.length; i++) {
+      if (keyOf(state.items[i]) === k) { state.items[i].copies = Math.min(99, state.items[i].copies + copies); lastAddedKey = k; return null; }
+    }
+    if (state.items.length >= MAX_ITEMS) return 'สูงสุด ' + MAX_ITEMS + ' รายการต่อครั้ง';
+    state.items.push(item); lastAddedKey = k;
+    return null;
+  }
+
+  function tplChip(name) {
+    var c = el('span', 'chip');
+    var d = el('span', 'dot'); d.style.background = (TPL_BY_NAME[name] && TPL_BY_NAME[name].color) || '#cbd5e1';
+    c.appendChild(d); c.appendChild(document.createTextNode(name));
+    return c;
+  }
+
+  /* ---------- ชื่อสินค้า: ค้นจากฐานข้อมูล (รวมหลายรหัสเป็นคำขอเดียว) ---------- */
+  var HAS_PRODUCTS = Number(window.APP_PRODUCTS) > 0;
+  var NAMES = {};            // article -> {name} | {nf:true}
+  var lookupQueue = {}, lookupTimer = null;
+
+  function queueLookup(codes) {
+    if (!HAS_PRODUCTS) return;
+    codes.forEach(function (c) { if (!NAMES[c]) lookupQueue[c] = 1; });
+    clearTimeout(lookupTimer);
+    lookupTimer = setTimeout(flushLookup, 300);
+  }
+  function flushLookup() {
+    var codes = Object.keys(lookupQueue).slice(0, 60);
+    codes.forEach(function (c) { delete lookupQueue[c]; });
+    if (!codes.length) return;
+    lookup(codes).then(function () {
+      render(true);
+      if (Object.keys(lookupQueue).length) flushLookup();
+    });
+  }
+  /** คืน Promise ของผลค้นหา และจำผลไว้ใน NAMES */
+  function lookup(codes) {
+    return new Promise(function (resolve) {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok) {
+            Object.keys(res.found).forEach(function (c) { var f = res.found[c]; NAMES[f.article] = { name: f.name }; });
+            res.missing.forEach(function (c) { if (/^\d{4,10}$/.test(c) && !NAMES[c]) NAMES[c] = { nf: true }; });
+          }
+          resolve(res && res.ok ? res : { found: {}, missing: codes });
+        })
+        .withFailureHandler(function () { resolve({ found: {}, missing: [], failed: true }); })
+        .lookupProducts(codes);
+    });
+  }
+
+  function render(keepFlash) {
+    var ul = $('list'); ul.textContent = '';
+    state.items.forEach(function (it, idx) {
+      var li = el('li', 'item' + (!keepFlash && keyOf(it) === lastAddedKey ? ' flash' : ''));
+      li.appendChild(el('span', 'no', String(idx + 1)));
+      var mid = el('div');
+      mid.appendChild(el('div', 'art', it.article));
+      var info = NAMES[it.article];
+      if (info && info.name) mid.appendChild(el('div', 'name', info.name));
+      else if (info && info.nf) mid.appendChild(el('div', 'name warn', '⚠ ไม่พบในฐานข้อมูลสินค้า ตรวจสอบเลขอีกครั้ง'));
+      var meta = el('div', 'meta');
+      if (it.template) meta.appendChild(tplChip(it.template));
+      if (it.size) meta.appendChild(el('span', 'chip blue', it.size));
+      if (!it.template && !it.size) meta.appendChild(el('span', 'chip', 'Railcard'));
+      mid.appendChild(meta);
+      li.appendChild(mid);
+
+      var st = el('div', 'stepper');
+      var minus = el('button', null, '−'); minus.type = 'button'; minus.setAttribute('aria-label', 'ลดจำนวน');
+      var q = el('input'); q.type = 'number'; q.min = 1; q.max = 99; q.value = it.copies; q.setAttribute('aria-label', 'จำนวน ' + it.article);
+      var plus = el('button', null, '+'); plus.type = 'button'; plus.setAttribute('aria-label', 'เพิ่มจำนวน');
+      function setQ(v) { it.copies = Math.max(1, Math.min(99, v || 1)); q.value = it.copies; saveDraft(); updateCount(); }
+      minus.addEventListener('click', function () { setQ(it.copies - 1); });
+      plus.addEventListener('click', function () { setQ(it.copies + 1); });
+      q.addEventListener('change', function () { setQ(parseInt(q.value, 10)); });
+      st.appendChild(minus); st.appendChild(q); st.appendChild(plus);
+      li.appendChild(st);
+
+      var del = el('button', 'del', '✕'); del.type = 'button'; del.setAttribute('aria-label', 'ลบ ' + it.article);
+      del.addEventListener('click', function () { state.items.splice(idx, 1); render(); saveDraft(); });
+      li.appendChild(del);
+      ul.appendChild(li);
+    });
+    $('empty').classList.toggle('hide', state.items.length > 0);
+    lastAddedKey = '';
+    updateCount();
+  }
+
+  var lastCount = -1;
+  function updateCount() {
+    var n = state.items.length;
+    var total = state.items.reduce(function (s, i) { return s + i.copies; }, 0);
+    $('tagNum').textContent = n; $('sumItems').textContent = n; $('sumCopies').textContent = total;
+    $('submitBtn').disabled = n === 0;
+    if (lastCount !== -1 && n !== lastCount) { var t = $('tag'); t.classList.remove('bump'); void t.offsetWidth; t.classList.add('bump'); }
+    lastCount = n;
+  }
+
+  function onAdd() {
+    var art = $('article').value.trim();
+    // ถ้าพิมพ์/ยิงเป็นบาร์โค้ด (11-14 หลัก) → แปลงเป็น Article ก่อน
+    if (/^\d{11,14}$/.test(art)) { addByCode(art, parseInt($('copies').value, 10) || 1, $('lookupHint')); $('article').value = ''; return; }
+    var err = addItem(art, $('copies').value);
+    if (err) { msg($('addMsg'), err, false); $('article').select(); return; }
+    clearMsg($('addMsg'));
+    $('article').value = ''; $('copies').value = 1;
+    render(); saveDraft();
+    queueLookup([art]);
+    $('article').focus();
+  }
+
+  /**
+   * เพิ่มจากรหัสที่สแกน/ยิงมา: Barcode → ค้น Article → เพิ่มรายการ
+   * statusEl = ที่แสดงผล · คืน Promise<{ok, text}>
+   */
+  function addByCode(code, qty, statusEl) {
+    code = String(code).replace(/\D/g, '');
+    function show(t, ok) { if (statusEl) { statusEl.textContent = t; statusEl.className = statusEl.className.replace(/\b(ok|err)\b/g, '').trim() + ' ' + (ok ? 'ok' : 'err'); } }
+    if (!HAS_PRODUCTS) {
+      if (/^\d{4,10}$/.test(code)) {
+        var e0 = addItem(code, qty); if (e0) { show(e0, false); return Promise.resolve({ ok: false }); }
+        render(); saveDraft(); show('✓ เพิ่ม ' + code, true); return Promise.resolve({ ok: true, article: code });
+      }
+      show('ยังไม่มีฐานข้อมูลบาร์โค้ด (' + code + ') ให้ Admin นำเข้าข้อมูลสินค้าก่อน หรือพิมพ์ Article แทน', false);
+      return Promise.resolve({ ok: false });
+    }
+    show('กำลังค้นหา ' + code + ' …', true);
+    return lookup([code]).then(function (res) {
+      var f = res.found && res.found[code];
+      if (!f) {
+        show(res.failed ? 'เชื่อมต่อไม่สำเร็จ ลองใหม่อีกครั้ง' : '✗ ไม่พบบาร์โค้ด ' + code + ' ในฐานข้อมูล', false);
+        return { ok: false };
+      }
+      var e = addItem(f.article, qty);
+      if (e) { show(e, false); return { ok: false }; }
+      render(); saveDraft();
+      show('✓ ' + f.article + ' ' + (f.name || ''), true);
+      return { ok: true, article: f.article, name: f.name };
+    });
+  }
+
+  /* ---------- สแกนด้วยกล้อง (ตัวอ่านบาร์โค้ดของเราเอง ใน ScanJs ไม่ต้องโหลดไลบรารีภายนอก) ---------- */
+  var stream = null, loopTimer = null, detector = null, scanBusy = false, decoding = false;
+  var lastCode = '', lastAt = 0, scanCount = 0;
+
+  /** ใช้ตัวอ่านในตัวเครื่อง (Chrome Android มี) ถ้ามี เพราะเร็วกว่า · iPhone ใช้ตัวอ่านของเรา */
+  function getDetector() {
+    if (detector !== null) return Promise.resolve(detector);
+    if (!('BarcodeDetector' in window)) { detector = false; return Promise.resolve(false); }
+    var want = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'code_128'];
+    return Promise.resolve(window.BarcodeDetector.getSupportedFormats ? window.BarcodeDetector.getSupportedFormats() : want)
+      .then(function (fm) {
+        var use = want.filter(function (f) { return fm.indexOf(f) >= 0; });
+        detector = use.length ? new window.BarcodeDetector({ formats: use }) : false;
+        return detector;
+      }).catch(function () { detector = false; return false; });
+  }
+
+  /** อ่านจากภาพ/วิดีโอ: ตัวอ่านในเครื่องก่อน ไม่เจอค่อยใช้ของเรา */
+  function decodeFrom(src, isVideo) {
+    return getDetector().then(function (det) {
+      if (!det) return null;
+      return det.detect(src).then(function (r) { return r && r.length ? r[0].rawValue : null; }).catch(function () { return null; });
+    }).then(function (code) {
+      if (code) return code;
+      return isVideo ? window.BarcodeScan.decodeVideo(src) : window.BarcodeScan.decodeImage(src);
+    });
+  }
+
+  function scanStatus(t, cls) { var s = $('scanStatus'); s.textContent = t; s.className = 'scan-status ' + (cls || ''); }
+  function scanDetail(t) { $('scanDetail').textContent = t || ''; }
+
+  function logScan(code, text, ok) {
+    var li = el('li');
+    li.appendChild(el('span', 'mono', code));
+    li.appendChild(el('span', null, (ok ? '✓ ' : '✗ ') + text));
+    $('scanLog').insertBefore(li, $('scanLog').firstChild);
+  }
+
+  function onScanned(text) {
+    var code = String(text || '').replace(/\D/g, '');
+    if (!code) return;
+    var now = Date.now();
+    // จ่อค้างที่บาร์โค้ดเดิม = ไม่นับซ้ำ · ต้องเอากล้องออก (ไม่เห็นโค้ดนี้ > 1.2 วิ) แล้วสแกนใหม่ถึงนับ +1
+    if (code === lastCode && now - lastAt < 1200) { lastAt = now; return; }
+    if (scanBusy) return;
+    lastCode = code; lastAt = now; scanBusy = true;
+    try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {}
+    addByCode(code, 1, $('scanStatus')).then(function (r) {
+      if (r.ok) {
+        scanCount++; $('scanCount').textContent = scanCount;
+        logScan(code, r.article + (r.name ? ' ' + r.name : ''), true);
+        var v = $('scanner').querySelector('.scan-view'); v.classList.remove('scan-flash'); void v.offsetWidth; v.classList.add('scan-flash');
+      } else logScan(code, 'ไม่พบ', false);
+    }).finally(function () { scanBusy = false; });
+  }
+
+  /** แปลง error ของกล้องเป็นคำอธิบายที่ พนง. เข้าใจ */
+  function cameraErrorText(e) {
+    var n = (e && e.name) || '';
+    if (n === 'NotAllowedError' || n === 'SecurityError')
+      return 'ยังไม่ได้อนุญาตให้ใช้กล้อง หรือหน้าเว็บนี้ถูกบล็อกกล้อง ใช้ "ถ่ายรูปบาร์โค้ด" แทนได้';
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'ไม่พบกล้องหลังในเครื่องนี้';
+    if (n === 'NotReadableError') return 'กล้องถูกแอปอื่นใช้อยู่ ปิดแอปกล้องอื่นแล้วลองใหม่';
+    if (n === 'NO_API') return 'เบราว์เซอร์นี้ไม่อนุญาตให้หน้าเว็บเปิดกล้องสด ใช้ "ถ่ายรูปบาร์โค้ด" แทนได้';
+    return 'เปิดกล้องสดไม่ได้ ใช้ "ถ่ายรูปบาร์โค้ด" แทนได้';
+  }
+
+  function openScanner() {
+    scanCount = 0; $('scanCount').textContent = '0'; $('scanLog').textContent = '';
+    $('scanner').classList.remove('hide'); $('scanOff').classList.add('hide');
+    document.body.style.overflow = 'hidden';
+    scanStatus('กำลังเปิดกล้อง…'); scanDetail('');
+    var video = $('scanVideo');
+    var md = navigator.mediaDevices;
+    var p = (md && md.getUserMedia)
+      ? md.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } })
+      : Promise.reject({ name: 'NO_API', message: 'navigator.mediaDevices ไม่มี' });
+    p.then(function (s) {
+      stream = s;
+      video.setAttribute('playsinline', ''); video.muted = true; video.srcObject = s;
+      try { // ขอโฟกัสอัตโนมัติต่อเนื่อง (ถ้ากล้องรองรับ)
+        var tr = s.getVideoTracks()[0];
+        if (tr && tr.applyConstraints) tr.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function () {});
+      } catch (e) {}
+      return video.play();
+    }).then(function () {
+      scanStatus('เล็งกล้องให้บาร์โค้ดอยู่ในกรอบ ห่างประมาณ 15-20 ซม. · ชิ้นซ้ำ = +1');
+      loop();
+    }).catch(function (e) {
+      $('scanOff').classList.remove('hide');
+      scanStatus(cameraErrorText(e), 'err');
+      scanDetail('รายละเอียด: ' + ((e && e.name) || 'Error') + (e && e.message ? ' - ' + e.message : ''));
+      stopStream();
+    });
+  }
+
+  function loop() {
+    if (!stream) return;
+    var video = $('scanVideo');
+    if (!decoding && !scanBusy && video.readyState >= 2) {
+      decoding = true;
+      decodeFrom(video, true).then(function (code) { if (code) onScanned(code); })
+        .catch(function () {}).then(function () { decoding = false; });
+    }
+    loopTimer = setTimeout(loop, 160);
+  }
+
+  function stopStream() {
+    clearTimeout(loopTimer);
+    if (stream) { stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} }); }
+    stream = null;
+    try { $('scanVideo').srcObject = null; } catch (e) {}
+  }
+
+  function closeScanner() {
+    stopStream();
+    $('scanner').classList.add('hide'); document.body.style.overflow = '';
+    render();
+    if (scanCount) msg($('addMsg'), '✓ สแกนเพิ่มแล้ว ' + scanCount + ' ชิ้น', true);
+  }
+
+  /** ถ่ายรูปด้วยแอปกล้อง แล้วอ่านบาร์โค้ดจากรูป (ใช้ได้แม้เปิดกล้องสดไม่ได้) */
+  function scanPhoto(file) {
+    stopStream(); // เลือกโหมดถ่ายรูปแล้ว → ปิดกล้องสด กันนับซ้ำ
+    scanStatus('กำลังอ่านบาร์โค้ดจากรูป…'); scanDetail('');
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      // รอให้ข้อความ "กำลังอ่าน" ขึ้นจอก่อน แล้วค่อยประมวลผล (รูปใหญ่ใช้เวลา ~1 วิ)
+      setTimeout(function () {
+        var t0 = Date.now();
+        decodeFrom(img, false).then(function (code) {
+          var info = 'รูป ' + img.naturalWidth + '×' + img.naturalHeight + ' · ' + (Date.now() - t0) + ' ms';
+          if (code) { lastCode = ''; scanDetail(info); onScanned(code); }
+          else {
+            scanStatus('ไม่พบบาร์โค้ดในรูป ถ่ายให้บาร์โค้ดอยู่กลางภาพ แนวนอน ห่าง 15-20 ซม. และไม่เบลอ', 'err');
+            scanDetail(info);
+          }
+        }).catch(function (e) {
+          scanStatus('อ่านรูปไม่สำเร็จ', 'err'); scanDetail(String(e && e.message || e));
+        }).then(function () { URL.revokeObjectURL(url); $('scanPhoto').value = ''; });
+      }, 30);
+    };
+    img.onerror = function () {
+      scanStatus('เปิดรูปไม่ได้ ลองถ่ายใหม่', 'err'); URL.revokeObjectURL(url); $('scanPhoto').value = '';
+    };
+    img.src = url;
+  }
+
+  function onBulk() {
+    var added = 0, errors = [], barcodes = [], arts = [];
+    $('bulk').value.split(/\r?\n/).forEach(function (line, n) {
+      line = line.trim();
+      if (!line) return;
+      var parts = line.split(/[\s,;\t]+/).filter(Boolean);
+      // บรรทัดที่เป็นบาร์โค้ด (11-14 หลัก) → เก็บไว้แปลงเป็น Article ทีเดียว
+      if (/^\d{11,14}$/.test(parts[0]) && HAS_PRODUCTS) { barcodes.push({ code: parts[0], qty: parseInt(parts[1], 10) || 1, n: n + 1 }); return; }
+      if (ARTICLE_RE.test(parts[0])) arts.push(parts[0]);
+      if (!ARTICLE_RE.test(parts[0])) {
+        if (n === 0) return; // ข้ามหัวตาราง
+        errors.push('บรรทัด ' + (n + 1) + ': ' + line.slice(0, 30)); return;
+      }
+      var e = addItem(parts[0], parts[1] || 1);
+      if (e) errors.push('บรรทัด ' + (n + 1) + ': ' + e); else added++;
+    });
+    render(); saveDraft();
+    queueLookup(arts);
+    function report() {
+      if (errors.length) msg($('addMsg'), 'เพิ่มแล้ว ' + added + ' รายการ | ข้าม ' + errors.length + ' บรรทัด: ' + errors.slice(0, 5).join(' / '), false);
+      else { msg($('addMsg'), '✓ เพิ่มแล้ว ' + added + ' รายการ', true); $('bulk').value = ''; }
+    }
+    if (!barcodes.length) return report();
+    msg($('addMsg'), 'กำลังแปลงบาร์โค้ด ' + barcodes.length + ' รายการ…', true);
+    var chunks = [];
+    for (var i = 0; i < barcodes.length; i += 60) chunks.push(barcodes.slice(i, i + 60));
+    chunks.reduce(function (p, ch) {
+      return p.then(function () {
+        return lookup(ch.map(function (b) { return b.code; })).then(function (res) {
+          ch.forEach(function (b) {
+            var f = res.found && res.found[b.code];
+            if (!f) { errors.push('บรรทัด ' + b.n + ': ไม่พบบาร์โค้ด ' + b.code); return; }
+            var e = addItem(f.article, b.qty);
+            if (e) errors.push('บรรทัด ' + b.n + ': ' + e); else added++;
+          });
+        });
+      });
+    }, Promise.resolve()).then(function () { render(); saveDraft(); report(); });
+  }
+
+  function applyAll() {
+    if (!state.items.length) return;
+    var merged = [], seen = {};
+    state.items.forEach(function (i) {
+      i.size = state.size; i.template = state.template;
+      var k = keyOf(i);
+      if (seen[k]) seen[k].copies = Math.min(99, seen[k].copies + i.copies);
+      else { seen[k] = i; merged.push(i); }
+    });
+    state.items = merged;
+    render(); saveDraft();
+    msg($('addMsg'), '✓ เปลี่ยนทุกรายการเป็น ' + state.template + ' ขนาด ' + state.size, true);
+  }
+
+  /* ---------- Outbox: กดส่งแล้วเคลียร์ฟอร์มทันที ส่งต่อเบื้องหลัง ---------- */
+  function renderOutbox() {
+    var box = $('outbox'); box.textContent = '';
+    outbox.forEach(function (o) {
+      var row = el('div', 'ob ' + o.status);
+      var t = el('span');
+      var label = o.payload.items.length + ' รายการ (' + o.payload.type + ')';
+      if (o.status === 'sending') {
+        t.appendChild(el('i', 'spin'));
+        t.appendChild(document.createTextNode('กำลังส่ง ' + label + ' ... กรอกคำขอถัดไปได้เลย'));
+      } else if (o.status === 'ok') {
+        t.textContent = '✓ ส่งแล้ว ' + label + ' · เลขที่ ' + o.payload.requestId;
+      } else {
+        t.textContent = '✗ ส่งไม่สำเร็จ ' + label + ': ' + o.error;
+      }
+      row.appendChild(t);
+      if (o.status === 'err') {
+        var retry = el('button', 'btn', 'ส่งอีกครั้ง'); retry.type = 'button';
+        retry.addEventListener('click', function () { send(o); });
+        var back = el('button', 'btn', 'ดึงกลับมาแก้'); back.type = 'button';
+        back.addEventListener('click', function () { pullBack(o); });
+        row.appendChild(retry); row.appendChild(back);
+      }
+      box.appendChild(row);
+    });
+  }
+
+  function send(o) {
+    o.status = 'sending'; o.error = '';
+    renderOutbox(); saveOutbox();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (res && res.ok) {
+          o.status = 'ok';
+          setTimeout(function () { var i = outbox.indexOf(o); if (i >= 0) outbox.splice(i, 1); renderOutbox(); }, 12000);
+        } else { o.status = 'err'; o.error = (res && res.message) || 'ส่งไม่สำเร็จ'; }
+        renderOutbox(); saveOutbox();
+      })
+      .withFailureHandler(function (err) {
+        o.status = 'err'; o.error = 'เชื่อมต่อไม่สำเร็จ (' + (err && err.message ? err.message : err) + ')';
+        renderOutbox(); saveOutbox();
+      })
+      .submitRequest(o.payload);
+  }
+
+  function pullBack(o) {
+    outbox.splice(outbox.indexOf(o), 1);
+    $('requester').value = o.payload.requester;
+    $('note').value = o.payload.note || '';
+    state.items = o.payload.items.concat(state.items);
+    setType(o.payload.type);
+    renderOutbox(); saveOutbox();
+  }
+
+  function onSubmit() {
+    var sm = $('submitMsg');
+    if (!$('requester').value.trim()) {
+      msg(sm, 'กรุณากรอกชื่อผู้ขอ', false);
+      $('requester').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('requester').focus(); return;
+    }
+    if (!state.items.length) { msg(sm, 'ยังไม่มีรายการ', false); return; }
+    clearMsg(sm);
+    var o = { status: 'sending', payload: {
+      requestId: newRequestId(), requester: $('requester').value.trim(), type: state.type, note: $('note').value,
+      items: state.items.map(function (i) { return { article: i.article, copies: i.copies, size: i.size, template: i.template }; })
+    } };
+    outbox.unshift(o);
+    state.items = []; $('note').value = ''; render(); saveDraft();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    send(o);
+  }
+
+  /* ---------- events ---------- */
+  document.querySelectorAll('#typeSeg .type').forEach(function (b) {
+    b.addEventListener('click', function () { setType(b.getAttribute('data-type')); });
+  });
+  document.querySelectorAll('#sizeSeg button').forEach(function (b) {
+    b.addEventListener('click', function () { setSize(b.getAttribute('data-size')); });
+  });
+  $('applyAllBtn').addEventListener('click', applyAll);
+  $('galleryBtn').addEventListener('click', function () { setGallery($('tplGallery').classList.contains('hide')); });
+  $('curThumb').addEventListener('click', function () {
+    var t = TPL_BY_NAME[state.template];
+    if (t && IMAGES[t.id]) openLightbox(t); else setGallery(true);
+  });
+  $('lbClose').addEventListener('click', closeLightbox);
+  $('scanBtn').addEventListener('click', openScanner);
+  $('scanDone').addEventListener('click', closeScanner);
+  $('scanPhoto').addEventListener('change', function () { var f = this.files && this.files[0]; if (f) scanPhoto(f); });
+  $('lightbox').addEventListener('click', function (e) { if (e.target === $('lightbox')) closeLightbox(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeLightbox(); });
+  $('addBtn').addEventListener('click', onAdd);
+  $('article').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); onAdd(); } });
+  $('copies').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); onAdd(); } });
+  $('bulkBtn').addEventListener('click', onBulk);
+  $('clearBtn').addEventListener('click', function () { if (state.items.length && window.confirm('ล้างรายการทั้งหมด?')) { state.items = []; render(); saveDraft(); } });
+  $('submitBtn').addEventListener('click', onSubmit);
+  $('requester').addEventListener('change', saveDraft);
+
+  /* ---------- start ---------- */
+  var d = restore('sg_draft');
+  if (d) {
+    $('requester').value = d.requester || '';
+    if (d.size) state.size = d.size;
+    if (d.template && TPL_BY_NAME[d.template]) state.template = d.template;
+    if (Array.isArray(d.items)) state.items = d.items.filter(function (i) { return i && ARTICLE_RE.test(i.article); })
+      .map(function (i) { if (i.template && !TPL_BY_NAME[i.template]) i.template = state.template; return i; });
+    if (d.type) state.type = d.type;
+  }
+  renderTemplates(); setSize(state.size); setType(state.type);
+  loadImages();
+  queueLookup(state.items.map(function (i) { return i.article; })); // ชื่อสินค้าของรายการค้างจากครั้งก่อน
+
+  var pending = restore('sg_outbox');
+  if (Array.isArray(pending)) pending.forEach(function (o) { if (o && o.payload) { outbox.push(o); send(o); } });
+  renderOutbox();
+
+  google.script.run.withFailureHandler(function () {}).ping(); // ปลุก server ไว้ก่อน
+})();
+
+};
+</script>
+<script>window.__bootApp();</script>
+</body>
+</html>
