@@ -152,6 +152,11 @@
   .chip.gray{background:var(--paper);color:var(--mute);border-color:transparent}
   .req.done{background:#fbfcfe}
   @media (max-width:520px){ .stseg{gap:2px;padding:3px} .stseg button{font-size:13px;padding:8px 3px} .stseg .n{margin-left:3px;min-width:18px;padding:0 4px} }
+  .bulkbtns{display:flex;gap:8px;flex-wrap:wrap}
+  .acts .btn.del-btn{flex:0 0 auto;min-width:40px;padding-inline:10px}
+  @media (max-width:640px){ .acts{flex-wrap:wrap} .acts .btn{flex:1 1 auto} .acts .btn.del-btn{flex:0 0 auto} }
+  .msg.undo{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  .msg.undo .btn{min-height:34px;padding:4px 12px}
   .movebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--tag-soft);border:1px solid #f3dc8f;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:14px}
   .movebar span{flex:1 1 220px}
 
@@ -175,6 +180,7 @@
   .chip.st-p{background:#fff4e0;color:#b7791f;border-color:transparent}
   .chip.st-e{background:var(--blue-soft);color:var(--blue);border-color:transparent}
   .chip.st-r{background:var(--ok);color:#fff;border-color:transparent}
+  .chip.st-x{background:var(--bad-soft);color:var(--bad);border-color:transparent}
   .chip.st-d{background:var(--paper);color:var(--mute)}
   .track{display:grid;grid-template-columns:repeat(3,1fr);margin:12px 0 4px;position:relative}
   .track::before{content:"";position:absolute;left:16.6%;right:16.6%;top:11px;height:3px;background:var(--line);border-radius:3px}
@@ -396,6 +402,7 @@
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M16 8v8"/></svg>
       สแกนบาร์โค้ดสินค้า
     </button>
+    <div class="muted" id="packHint" aria-live="polite" style="margin-top:6px;min-height:18px"></div>
     <details style="margin-top:14px">
       <summary class="muted" style="cursor:pointer;font-weight:600">📋 วางหลายรายการพร้อมกัน (จาก Excel / LINE / Notes)</summary>
       <p class="muted">1 บรรทัด = 1 รายการ รูปแบบ <span class="mono">Article จำนวน</span> เช่น <span class="mono">200556 2</span> ถ้าไม่ใส่จำนวน = 1 ใบ</p>
@@ -467,7 +474,7 @@
  */
 (function () {
   'use strict';
-  var FNS = ['submitRequest', 'lookupProducts', 'getTemplateImages', 'ping', 'getMyRequests', 'markReceived'];
+  var FNS = ['submitRequest', 'lookupProducts', 'getTemplateImages', 'ping', 'getMyRequests', 'markReceived', 'getProductPack'];
   var CFG_KEY = 'sg_cfg_cache';
 
   function apiReady() { return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(API_URL); }
@@ -1043,7 +1050,7 @@ window.__startApp = function () {
   }
 
   function onAdd() {
-    var art = $('article').value.trim();
+    var art = $('article').value.trim().replace(/^\*+|\*+$/g, '');
     // ถ้าพิมพ์/ยิงเป็นบาร์โค้ด (11-14 หลัก) → แปลงเป็น Article ก่อน
     if (/^\d{11,14}$/.test(art)) { addByCode(art, parseInt($('copies').value, 10) || 1, $('lookupHint')); $('article').value = ''; return; }
     var err = addItem(art, $('copies').value);
@@ -1059,6 +1066,88 @@ window.__startApp = function () {
    * เพิ่มจากรหัสที่สแกน/ยิงมา: Barcode → ค้น Article → เพิ่มรายการ
    * statusEl = ที่แสดงผล · คืน Promise<{ok, text}>
    */
+
+  /* =====================================================================
+     ค้นบาร์โค้ดในเครื่อง (เร็ว): โหลด "barcode pack" ครั้งเดียวต่อเวอร์ชัน เก็บใน IndexedDB
+     สแกนแล้วได้ Article ทันทีโดยไม่ต้องรอ server · ชื่อสินค้าโหลดตามมาเบื้องหลัง
+     ===================================================================== */
+  var PACK = { map: null, ver: '', loading: false };
+
+  function idbReq(mode, fn) {
+    return new Promise(function (resolve) {
+      try {
+        if (!window.indexedDB) return resolve(null);
+        var open = indexedDB.open('signage-st59', 1);
+        open.onupgradeneeded = function () { open.result.createObjectStore('kv'); };
+        open.onerror = function () { resolve(null); };
+        open.onsuccess = function () {
+          try {
+            var db = open.result, tx = db.transaction('kv', mode), req = fn(tx.objectStore('kv'));
+            tx.oncomplete = function () { db.close(); resolve(req && req.result !== undefined ? req.result : true); };
+            tx.onerror = tx.onabort = function () { db.close(); resolve(null); };
+          } catch (e) { resolve(null); }
+        };
+      } catch (e) { resolve(null); }
+    });
+  }
+  function idbGet(k) { return idbReq('readonly', function (st) { return st.get(k); }); }
+  function idbPut(k, v) { return idbReq('readwrite', function (st) { return st.put(v, k); }); }
+
+  /** ถอดรหัส pack: "ส่วนต่าง36:Article36,..." → Map(บาร์โค้ดแบบตัด 0 นำหน้า → Article) */
+  function decodePack(s) {
+    var m = new Map(), prev = 0;
+    if (!s) return m;
+    var parts = s.split(',');
+    for (var i = 0; i < parts.length; i++) {
+      var t = parts[i], k = t.indexOf(':');
+      if (k < 1) continue;
+      prev += parseInt(t.slice(0, k), 36);
+      var a = t.slice(k + 1);
+      m.set(prev, a.charAt(0) === '_' ? a.slice(1) : String(parseInt(a, 36)));
+    }
+    return m;
+  }
+  function usePack(p) {
+    try { PACK.map = decodePack(p.pack); PACK.ver = p.ver; } catch (e) { PACK.map = null; }
+    packHint();
+  }
+  function packHint() {
+    var h = $('packHint'); if (!h) return;
+    if (!HAS_PRODUCTS) { h.textContent = ''; return; }
+    h.textContent = PACK.map ? '⚡ ค้นบาร์โค้ดในเครื่อง: พร้อม (' + PACK.map.size.toLocaleString() + ' บาร์โค้ด)'
+                             : (PACK.loading ? '⏳ กำลังเตรียมฐานข้อมูลบาร์โค้ด… (ระหว่างนี้สแกนได้ แต่จะช้ากว่า)' : '');
+  }
+  /** เปิดหน้า: ใช้ชุดที่เก็บไว้ทันที แล้วถาม server ว่ามีเวอร์ชันใหม่ไหม (ถ้าไม่มี server ตอบสั้นๆ ไม่ส่งข้อมูลซ้ำ) */
+  function loadPack() {
+    if (!HAS_PRODUCTS) return;
+    PACK.loading = true; packHint();
+    idbGet('pack').then(function (saved) {
+      if (saved && saved.pack) usePack(saved);
+      google.script.run
+        .withSuccessHandler(function (res) {
+          PACK.loading = false;
+          if (res && res.ok && res.pack != null && !res.same) {
+            usePack(res);
+            idbPut('pack', { ver: res.ver, pack: res.pack });
+          }
+          packHint();
+        })
+        .withFailureHandler(function () { PACK.loading = false; packHint(); })
+        .getProductPack(saved && saved.ver ? saved.ver : '');
+    });
+  }
+
+  /** ค้นในเครื่อง: บาร์โค้ด railcard (25…) หรือบาร์โค้ดใน pack → { article, railcard? } · ไม่เจอ → null */
+  function localResolve(code) {
+    var rc = window.BarcodeScan && window.BarcodeScan.railcardArticle(code);
+    if (rc) return { article: rc, railcard: true };
+    if (PACK.map) {
+      var art = PACK.map.get(Number(String(code).replace(/^0+/, '')));
+      if (art) return { article: art };
+    }
+    return null;
+  }
+
   function addByCode(code, qty, statusEl) {
     code = String(code).replace(/\D/g, '');
     function show(t, ok) { if (statusEl) { statusEl.textContent = t; statusEl.className = statusEl.className.replace(/\b(ok|err)\b/g, '').trim() + ' ' + (ok ? 'ok' : 'err'); } }
@@ -1072,6 +1161,22 @@ window.__startApp = function () {
       show('ยังไม่มีฐานข้อมูลบาร์โค้ด (' + code + ') ให้ Admin นำเข้าข้อมูลสินค้าก่อน หรือพิมพ์ Article แทน', false);
       return Promise.resolve({ ok: false });
     }
+    // 1) ค้นในเครื่องก่อน → เพิ่มรายการทันที แล้วค่อยดึงชื่อสินค้าเบื้องหลัง
+    var loc = localResolve(code);
+    if (loc) {
+      var e1 = addItem(loc.article, qty);
+      if (e1) { show(e1, false); return Promise.resolve({ ok: false }); }
+      render(); saveDraft(); queueLookup([loc.article]);
+      var nm = NAMES[loc.article] && NAMES[loc.article].name;
+      show('✓ ' + loc.article + (nm ? ' ' + nm : '') + (loc.railcard ? ' (จากป้ายราคา)' : ''), true);
+      return Promise.resolve({ ok: true, article: loc.article, name: nm || '' });
+    }
+    // 2) มีชุดบาร์โค้ดในเครื่องแล้วแต่ไม่เจอ → แจ้งทันที ไม่ต้องรอ server
+    if (PACK.map && /^\d{11,14}$/.test(code)) {
+      show('✗ ไม่พบบาร์โค้ด ' + code + ' ในฐานข้อมูล', false);
+      return Promise.resolve({ ok: false });
+    }
+    // 3) ยังไม่มีชุดในเครื่อง (เพิ่งเปิดหน้า) → ถาม server
     show('กำลังค้นหา ' + code + ' …', true);
     return lookup([code]).then(function (res) {
       var f = res.found && res.found[code];
@@ -1242,6 +1347,7 @@ window.__startApp = function () {
       line = line.trim();
       if (!line) return;
       var parts = line.split(/[\s,;\t]+/).filter(Boolean);
+      parts[0] = parts[0].replace(/^\*+|\*+$/g, '');   // บาร์โค้ดแบบ *8851234567890*
       // บรรทัดที่เป็นบาร์โค้ด (11-14 หลัก) → เก็บไว้แปลงเป็น Article ทีเดียว
       if (/^\d{11,14}$/.test(parts[0]) && HAS_PRODUCTS) { barcodes.push({ code: parts[0], qty: parseInt(parts[1], 10) || 1, n: n + 1 }); return; }
       if (ARTICLE_RE.test(parts[0])) arts.push(parts[0]);
@@ -1251,6 +1357,17 @@ window.__startApp = function () {
       }
       var e = addItem(parts[0], parts[1] || 1);
       if (e) errors.push('บรรทัด ' + (n + 1) + ': ' + e); else added++;
+    });
+    // บาร์โค้ดที่ค้นในเครื่องได้ → เพิ่มทันที เหลือเฉพาะที่ต้องถาม server
+    barcodes = barcodes.filter(function (b) {
+      var loc = localResolve(b.code);
+      if (loc) {
+        var e2 = addItem(loc.article, b.qty);
+        if (e2) errors.push('บรรทัด ' + b.n + ': ' + e2); else { added++; arts.push(loc.article); }
+        return false;
+      }
+      if (PACK.map) { errors.push('บรรทัด ' + b.n + ': ไม่พบบาร์โค้ด ' + b.code); return false; }
+      return true;
     });
     render(); saveDraft();
     queueLookup(arts);
@@ -1388,11 +1505,11 @@ window.__startApp = function () {
     return d.getDate() + '/' + (d.getMonth() + 1) + ' ' + hhmm(ms);
   }
 
-  var ST_LABEL = { Pending: ['รอดำเนินการ', 'st-p'], Exported: ['กำลังพิมพ์', 'st-e'], Ready: ['พร้อมรับ', 'st-r'], Received: ['รับแล้ว', 'st-d'] };
+  var ST_LABEL = { Pending: ['รอดำเนินการ', 'st-p'], Exported: ['กำลังพิมพ์', 'st-e'], Ready: ['พร้อมรับ', 'st-r'], Received: ['รับแล้ว', 'st-d'], Deleted: ['ถูกยกเลิก', 'st-x'] };
   var ST_ORDER = { Pending: 0, Exported: 1, Ready: 2, Received: 3 };
 
   /** อยู่ในประวัติ: รับแล้ว หรือระบบปิดให้เพราะขึ้นวันใหม่ (server ส่ง history มา) */
-  function isHist(r) { return r.history === true || r.status === 'Received'; }
+  function isHist(r) { return r.history === true || r.status === 'Received' || r.status === 'Deleted'; }
 
   function mineCard(r) {
     var c = el('div', 'mreq' + (r.status === 'Ready' ? ' ready' : ''));
@@ -1402,7 +1519,7 @@ window.__startApp = function () {
     var tpls = {}; r.items.forEach(function (i) { if (i.template) tpls[i.template + (i.size ? ' · ' + i.size : '')] = 1; });
     left.appendChild(el('div', 'muted', (Object.keys(tpls).length ? Object.keys(tpls).join(', ') + ' · ' : '') + 'ส่ง ' + dayLabel(r.sentAt)));
     top.appendChild(left);
-    var lab = isHist(r) && r.status !== 'Received' ? ['ปิดแล้ว', 'st-d'] : (ST_LABEL[r.status] || ST_LABEL.Pending);
+    var lab = r.status === 'Deleted' ? ST_LABEL.Deleted : isHist(r) && r.status !== 'Received' ? ['ปิดแล้ว', 'st-d'] : (ST_LABEL[r.status] || ST_LABEL.Pending);
     top.appendChild(el('span', 'chip ' + lab[1], lab[0]));
     c.appendChild(top);
 
@@ -1527,6 +1644,7 @@ window.__startApp = function () {
   }
   renderTemplates(); setSize(state.size); setType(state.type);
   loadImages();
+  loadPack();      // ชุดบาร์โค้ดสำหรับค้นในเครื่อง
   queueLookup(state.items.map(function (i) { return i.article; })); // ชื่อสินค้าของรายการค้างจากครั้งก่อน
 
   var pending = restore('sg_outbox');
