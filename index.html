@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ขอป้ายราคา / Railcard</title>
+  <meta name="format-detection" content="telephone=no">
   <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
@@ -51,7 +52,7 @@
   .credit{display:flex;align-items:center;gap:10px;margin:22px 0 0;font-size:11px;letter-spacing:.08em;
     color:rgba(20,33,61,.32);user-select:none;pointer-events:none}
   .credit::before,.credit::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(20,33,61,.12),transparent)}
-  .credit b{font-weight:600;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em}
+  .credit span,.credit a{color:inherit!important;text-decoration:none!important;font:inherit;letter-spacing:inherit}
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
   .card-h{display:flex;align-items:center;gap:10px;margin:0 0 12px}
   .card-h h2{font-family:var(--display);font-weight:600;font-size:17px;margin:0;flex:1}
@@ -426,7 +427,7 @@
     <div id="submitMsg" class="msg"></div>
   </section>
 
-  <p class="credit" aria-label="Powered by 00009821">Powered by <b>00009821</b></p>
+  <p class="credit" aria-label="Powered by 00009821">Powered by <span>00009821</span></p>
 </main>
 
 <!-- หน้าสแกนบาร์โค้ด -->
