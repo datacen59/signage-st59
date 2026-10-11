@@ -147,8 +147,22 @@
   .chip.amber{background:#fff4e0;color:#b7791f;border-color:transparent}
   .chip.green{background:var(--ok-soft);color:var(--ok);border-color:transparent}
   .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+  .when{font-size:13px;color:var(--ink-2);margin-top:2px;font-variant-numeric:tabular-nums}
+  .when .muted{font-size:13px}
+  .chip.gray{background:var(--paper);color:var(--mute);border-color:transparent}
+  .req.done{background:#fbfcfe}
+  @media (max-width:520px){ .stseg{gap:2px;padding:3px} .stseg button{font-size:13px;padding:8px 3px} .stseg .n{margin-left:3px;min-width:18px;padding:0 4px} }
   .movebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--tag-soft);border:1px solid #f3dc8f;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:14px}
   .movebar span{flex:1 1 220px}
+
+  /* ---------- แจ้งเตือนคำขอใหม่ (หน้า Admin) ---------- */
+  .new-alert{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--red);color:#fff;border-radius:12px;padding:10px 14px;margin:10px 0 0;font-weight:600;animation:slide .3s ease}
+  .new-alert .bell{font-size:20px;animation:ring 1.2s ease 3}
+  .new-alert span{flex:1 1 220px}
+  .new-alert .btn{min-height:36px;padding:5px 12px;font-size:14px;background:#fff;color:var(--red-dk);border-color:#fff}
+  .sound-hint{font-size:12px;color:#ffd77a;width:100%;text-align:right}
+  .req.is-new{border-color:var(--red);box-shadow:0 0 0 3px var(--red-soft)}
+  @keyframes ring{10%,30%{transform:rotate(14deg)}20%,40%{transform:rotate(-14deg)}50%{transform:none}}
 
   /* ---------- คำขอของฉัน (ติดตามสถานะ) ---------- */
   .ready-alert{display:flex;gap:10px;align-items:center;background:var(--ok);color:#fff;border-radius:12px;padding:10px 12px;margin-bottom:12px;font-weight:600;animation:slide .3s ease}
@@ -1354,7 +1368,7 @@ window.__startApp = function () {
   /* =====================================================================
      คำขอของฉัน: จำเลขที่คำขอที่ส่งจากมือถือเครื่องนี้ → ถามสถานะจาก server ทุก 1 นาที
      ===================================================================== */
-  var MINE_KEY = 'sg_mine', MINE_CACHE = 'sg_mine_cache', MINE_MAX = 40, MINE_DAYS = 30;
+  var MINE_KEY = 'sg_mine', MINE_CACHE = 'sg_mine_cache', MINE_MAX = 40, MINE_DAYS = 5;   // ประวัติเก็บ 3 วัน + เผื่อ
   var mineReqs = [];
 
   function mineIds() {
@@ -1377,6 +1391,9 @@ window.__startApp = function () {
   var ST_LABEL = { Pending: ['รอดำเนินการ', 'st-p'], Exported: ['กำลังพิมพ์', 'st-e'], Ready: ['พร้อมรับ', 'st-r'], Received: ['รับแล้ว', 'st-d'] };
   var ST_ORDER = { Pending: 0, Exported: 1, Ready: 2, Received: 3 };
 
+  /** อยู่ในประวัติ: รับแล้ว หรือระบบปิดให้เพราะขึ้นวันใหม่ (server ส่ง history มา) */
+  function isHist(r) { return r.history === true || r.status === 'Received'; }
+
   function mineCard(r) {
     var c = el('div', 'mreq' + (r.status === 'Ready' ? ' ready' : ''));
     var top = el('div', 'mreq-top'), left = el('div');
@@ -1385,11 +1402,11 @@ window.__startApp = function () {
     var tpls = {}; r.items.forEach(function (i) { if (i.template) tpls[i.template + (i.size ? ' · ' + i.size : '')] = 1; });
     left.appendChild(el('div', 'muted', (Object.keys(tpls).length ? Object.keys(tpls).join(', ') + ' · ' : '') + 'ส่ง ' + dayLabel(r.sentAt)));
     top.appendChild(left);
-    var lab = ST_LABEL[r.status] || ST_LABEL.Pending;
+    var lab = isHist(r) && r.status !== 'Received' ? ['ปิดแล้ว', 'st-d'] : (ST_LABEL[r.status] || ST_LABEL.Pending);
     top.appendChild(el('span', 'chip ' + lab[1], lab[0]));
     c.appendChild(top);
 
-    if (r.status !== 'Received') {
+    if (!isHist(r)) {
       var k = ST_ORDER[r.status] || 0, tr = el('div', 'track'), fill = el('div', 'fill');
       fill.style.width = (k / 2 * 66.8) + '%'; tr.appendChild(fill);
       [['ส่งแล้ว', r.sentAt], ['กำลังพิมพ์', r.exportedAt], ['พร้อมรับ', r.readyAt]].forEach(function (s, i) {
@@ -1413,7 +1430,7 @@ window.__startApp = function () {
       ul.appendChild(li);
     });
     d.appendChild(ul); f.appendChild(d);
-    if (r.status === 'Ready') {
+    if (r.status === 'Ready' && !isHist(r)) {
       var b = el('button', 'btn sm ok', 'รับแล้ว ✓'); b.type = 'button';
       b.addEventListener('click', function () {
         b.disabled = true; b.textContent = 'กำลังบันทึก…';
@@ -1429,9 +1446,9 @@ window.__startApp = function () {
   }
 
   function renderMine() {
-    var active = mineReqs.filter(function (r) { return r.status !== 'Received'; })
+    var active = mineReqs.filter(function (r) { return !isHist(r); })
       .sort(function (a, b) { return (ST_ORDER[b.status] - ST_ORDER[a.status]) || (b.sentAt - a.sentAt); });
-    var hist = mineReqs.filter(function (r) { return r.status === 'Received'; }).sort(function (a, b) { return b.sentAt - a.sentAt; });
+    var hist = mineReqs.filter(isHist).sort(function (a, b) { return b.sentAt - a.sentAt; });
     $('mineCard').classList.toggle('hide', !mineReqs.length);
     var ready = active.filter(function (r) { return r.status === 'Ready'; }).length;
     var ra = $('readyAlert'); ra.textContent = '';
