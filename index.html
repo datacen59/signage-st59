@@ -1180,7 +1180,11 @@ window.__startApp = function () {
   function onAdd() {
     var art = $('article').value.trim().replace(/^\*+|\*+$/g, '');
     // ถ้าพิมพ์/ยิงเป็นบาร์โค้ด (11-14 หลัก) → แปลงเป็น Article ก่อน
-    if (/^\d{11,14}$/.test(art)) { addByCode(art, parseInt($('copies').value, 10) || 1, $('lookupHint')); $('article').value = ''; return; }
+    if (/^\d{11,14}$/.test(art)) {
+      addByCode(art, parseInt($('copies').value, 10) || 1, $('lookupHint'));
+      $('article').value = ''; $('copies').value = 1; $('article').focus();
+      return;
+    }
     var err = addItem(art, $('copies').value);
     if (err) { msg($('addMsg'), err, false); $('article').select(); return; }
     clearMsg($('addMsg'));
@@ -1477,7 +1481,7 @@ window.__startApp = function () {
       var parts = line.split(/[\s,;\t]+/).filter(Boolean);
       parts[0] = parts[0].replace(/^\*+|\*+$/g, '');   // บาร์โค้ดแบบ *8851234567890*
       // บรรทัดที่เป็นบาร์โค้ด (11-14 หลัก) → เก็บไว้แปลงเป็น Article ทีเดียว
-      if (/^\d{11,14}$/.test(parts[0]) && HAS_PRODUCTS) { barcodes.push({ code: parts[0], qty: parseInt(parts[1], 10) || 1, n: n + 1 }); return; }
+      if (/^\d{11,14}$/.test(parts[0])) { barcodes.push({ code: parts[0], qty: parseInt(parts[1], 10) || 1, n: n + 1 }); return; }
       if (ARTICLE_RE.test(parts[0])) arts.push(parts[0]);
       if (!ARTICLE_RE.test(parts[0])) {
         if (n === 0) return; // ข้ามหัวตาราง
@@ -1494,7 +1498,7 @@ window.__startApp = function () {
         if (e2) errors.push('บรรทัด ' + b.n + ': ' + e2); else { added++; arts.push(loc.article); }
         return false;
       }
-      if (PACK.map) { errors.push('บรรทัด ' + b.n + ': ไม่พบบาร์โค้ด ' + b.code); return false; }
+      if (PACK.map || !HAS_PRODUCTS) { errors.push('บรรทัด ' + b.n + ': ไม่พบบาร์โค้ด ' + b.code); return false; }
       return true;
     });
     render(); saveDraft();
