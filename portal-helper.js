@@ -13,7 +13,7 @@
   'use strict';
   if (window.__sgHelper) { window.__sgHelper.show(); return; }
 
-  var VERSION = '1.7';
+  var VERSION = '1.8';
   var SIZES = ['A3', 'A4', 'A5', 'A6'];
   var DELAY = 150;          // ms ระหว่างการคลิก
   var OPEN_TIMEOUT = 2000;  // ms รอ dropdown เปิด
@@ -366,13 +366,66 @@
   function log(msg, kind) {
     var li = h('li', { style: 'padding:2px 0;color:' + (kind === 'err' ? '#c1121f' : kind === 'ok' ? '#2b7a3d' : '#333') }, [msg]);
     ui.log.appendChild(li); ui.log.scrollTop = ui.log.scrollHeight;
+    if (ui.stat) { ui.stat.textContent = ui.min ? msg : ''; ui.stat.style.color = kind === 'err' ? '#c1121f' : kind === 'ok' ? '#2b7a3d' : '#667'; }
+  }
+
+  /* ---------- ย้ายแผง (ลากที่หัว) + ย่อ/ขยาย · จำค่าไว้ในเครื่อง ---------- */
+  function lsGet(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function placeAt(x, y) {
+    var b = ui.box, w = b.offsetWidth, hgt = b.offsetHeight;
+    x = Math.max(4, Math.min(x, window.innerWidth - w - 4));
+    y = Math.max(4, Math.min(y, window.innerHeight - Math.min(hgt, 48) - 4));   // หัวแผงต้องอยู่ในจอเสมอ
+    b.style.left = x + 'px'; b.style.top = y + 'px'; b.style.right = 'auto'; b.style.bottom = 'auto';
+  }
+  function setMin(on) {
+    ui.min = !!on;
+    Array.prototype.forEach.call(ui.box.children, function (c) { if (c !== ui.head) c.style.display = ui.min ? 'none' : ''; });
+    if (!ui.min && ui.diag && !ui.diag.childNodes.length) ui.diag.style.display = 'none';
+    ui.box.style.width = ui.min ? '300px' : '380px';
+    ui.head.style.paddingBottom = ui.min ? '12px' : '4px';
+    ui.minBtn.textContent = ui.min ? '▢' : '▁';
+    var last = ui.log && ui.log.lastChild;
+    ui.stat.textContent = ui.min && last ? last.textContent : '';
+    lsSet('sg_helper_min', ui.min);
+    var r = ui.box.getBoundingClientRect(); if (ui.box.style.left) placeAt(r.left, r.top);
+  }
+  function initDrag() {
+    var pos = lsGet('sg_helper_pos');
+    if (pos && typeof pos.x === 'number') placeAt(pos.x, pos.y);
+    if (lsGet('sg_helper_min')) setMin(true);
+    var sx, sy, ox, oy, dragging = false;
+    ui.head.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0 || e.target.closest('button')) return;
+      var r = ui.box.getBoundingClientRect();
+      sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top; dragging = true;
+      try { ui.head.setPointerCapture(e.pointerId); } catch (er) {}
+      e.preventDefault();
+    });
+    ui.head.addEventListener('pointermove', function (e) {
+      if (dragging) placeAt(ox + e.clientX - sx, oy + e.clientY - sy);
+    });
+    function end() {
+      if (!dragging) return; dragging = false;
+      var r = ui.box.getBoundingClientRect(); lsSet('sg_helper_pos', { x: r.left, y: r.top });
+    }
+    ui.head.addEventListener('pointerup', end);
+    ui.head.addEventListener('pointercancel', end);
+    ui.head.addEventListener('dblclick', function (e) { if (!e.target.closest('button')) setMin(!ui.min); });
+    window.addEventListener('resize', function () { if (ui.box.style.left) { var r = ui.box.getBoundingClientRect(); placeAt(r.left, r.top); } });
   }
   function buildUI() {
     var btn = 'border:1px solid #ccd;border-radius:8px;padding:7px 12px;font:600 13px sans-serif;cursor:pointer;background:#fff';
     ui.box = h('div', { id: 'sg-helper', style: 'position:fixed;right:16px;bottom:16px;z-index:2147483647;width:380px;max-height:80vh;display:flex;flex-direction:column;gap:8px;background:#fff;border:1px solid #d5d9e3;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);padding:14px;font:13px/1.45 sans-serif;color:#14213d' });
-    var close = h('button', { style: 'border:0;background:none;font-size:18px;cursor:pointer;margin-left:auto' }, ['×']);
+    var hb = 'border:0;background:none;font-size:16px;cursor:pointer;color:#556;width:26px;height:26px;border-radius:6px;line-height:1';
+    var close = h('button', { style: hb + ';font-size:18px', title: 'ปิดแผง (เปิดใหม่ด้วย bookmark)' }, ['×']);
     close.onclick = function () { ui.box.style.display = 'none'; };
-    ui.box.appendChild(h('div', { style: 'display:flex;align-items:center;gap:8px' }, [h('b', { style: 'font-size:15px' }, ['⚙ ตั้งค่าป้ายอัตโนมัติ · ST59']), h('small', { style: 'color:#99a' }, ['v' + VERSION]), close]));
+    ui.minBtn = h('button', { style: hb, title: 'ย่อ / ขยายแผง' }, ['▁']);
+    ui.minBtn.onclick = function () { setMin(!ui.min); };
+    ui.stat = h('span', { style: 'flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#667;font-size:12px' });
+    ui.head = h('div', { title: 'ลากเพื่อย้ายแผง', style: 'display:flex;align-items:center;gap:8px;cursor:move;user-select:none;touch-action:none;margin:-14px -14px 0;padding:12px 10px 4px 14px' },
+      [h('b', { style: 'font-size:15px;white-space:nowrap' }, ['⚙ ตั้งค่าป้าย']), h('small', { style: 'color:#99a' }, ['v' + VERSION]), ui.stat, ui.minBtn, close]);
+    ui.box.appendChild(ui.head);
     ui.box.appendChild(h('div', { style: 'color:#667' }, ['เปิดแผงนี้ไว้ แล้วกด Upload Excel ไฟล์จากหน้า Admin — ระบบอ่านค่าป้ายจากไฟล์ให้เอง (หรือวางข้อความเองก็ได้)']));
     ui.ta = h('textarea', { rows: '6', placeholder: '198368\tSimple1\tA4\t1', style: 'width:100%;box-sizing:border-box;font:12px monospace;border:1px solid #ccd;border-radius:8px;padding:6px;resize:vertical' });
     ui.box.appendChild(ui.ta);
@@ -399,6 +452,7 @@
     ui.log = h('ol', { style: 'margin:0;padding:0 0 0 18px;overflow:auto;max-height:34vh;border-top:1px solid #eef;padding-top:6px' });
     ui.box.appendChild(ui.log);
     document.body.appendChild(ui.box);
+    initDrag();
 
     bPaste.onclick = function () {
       if (!navigator.clipboard || !navigator.clipboard.readText) { ui.ta.focus(); log('เบราว์เซอร์ไม่ให้อ่านคลิปบอร์ด — กด Ctrl+V ในช่องแทน'); return; }
