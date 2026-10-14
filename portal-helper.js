@@ -371,11 +371,15 @@
     var close = h('button', { style: 'border:0;background:none;font-size:18px;cursor:pointer;margin-left:auto' }, ['×']);
     close.onclick = function () { ui.box.style.display = 'none'; };
     ui.box.appendChild(h('div', { style: 'display:flex;align-items:center;gap:8px' }, [h('b', { style: 'font-size:15px' }, ['⚙ ตั้งค่าป้ายอัตโนมัติ · ST59']), close]));
-    ui.box.appendChild(h('div', { style: 'color:#667' }, ['วางข้อมูล Article · Template · Size · Copies (copy จาก Excel หรือปุ่มในหน้า Admin)']));
+    ui.box.appendChild(h('div', { style: 'color:#667' }, ['เปิดแผงนี้ไว้ แล้วกด Upload Excel ไฟล์จากหน้า Admin — ระบบอ่านค่าป้ายจากไฟล์ให้เอง (หรือวางข้อความเองก็ได้)']));
     ui.ta = h('textarea', { rows: '6', placeholder: '198368\tSimple1\tA4\t1', style: 'width:100%;box-sizing:border-box;font:12px monospace;border:1px solid #ccd;border-radius:8px;padding:6px;resize:vertical' });
     ui.box.appendChild(ui.ta);
     ui.cp = h('input', { type: 'checkbox', id: 'sg-cp' });
     ui.box.appendChild(h('label', { for: 'sg-cp', style: 'display:flex;gap:6px;align-items:center' }, [ui.cp, 'ตั้ง Copies ด้วย (ปกติมาจาก Excel แล้ว)']));
+    ui.auto = h('input', { type: 'checkbox', id: 'sg-auto' });
+    try { ui.auto.checked = localStorage.getItem('sg_helper_auto') !== 'off'; } catch (e) { ui.auto.checked = true; }
+    ui.auto.onchange = function () { try { localStorage.setItem('sg_helper_auto', ui.auto.checked ? 'on' : 'off'); } catch (e) {} };
+    ui.box.appendChild(h('label', { for: 'sg-auto', style: 'display:flex;gap:6px;align-items:center' }, [ui.auto, 'Upload Excel แล้วเริ่มตั้งค่าเองอัตโนมัติ']));
     var bPaste = h('button', { style: btn }, ['📋 วาง']);
     var bCheck = h('button', { style: btn }, ['🔍 ตรวจหน้า']);
     ui.run = h('button', { style: btn + ';background:#1f6feb;color:#fff;border-color:#1f6feb' }, ['▶ เริ่มตั้งค่า']);
@@ -402,9 +406,18 @@
     data.forEach(function (d) { (queue[d.article] = queue[d.article] || []).push(d); });
     var pairs = [], noData = [], seenArt = {};
     rows.forEach(function (r) {
-      var q = queue[r.article];
-      seenArt[r.article] = (seenArt[r.article] || 0) + 1;
-      if (q && q.length) pairs.push({ row: r, occ: seenArt[r.article] - 1, want: q.shift() }); else noData.push(r.article);
+      r.occ = seenArt[r.article] = (seenArt[r.article] || 0) + 1; r.occ--;
+      var t = templateTrigger(r.el);
+      r.fresh = !t || /select template/i.test(currentTpl(t) || '');
+    });
+    // แถวที่ยังเป็น "Select Template" ได้ก่อน → Upload ไฟล์ใหม่จะไม่ไปแก้แถวที่ตั้งไว้แล้ว
+    rows.filter(function (r) { return r.fresh; }).concat(rows.filter(function (r) { return !r.fresh; }))
+      .forEach(function (r) {
+        var q = queue[r.article];
+        if (q && q.length) pairs.push({ row: r, occ: r.occ, want: q.shift() }); else noData.push(r.article);
+      });
+    pairs.sort(function (a, b) {   // ทำตามลำดับบนหน้าเว็บ
+      return a.row.el.compareDocumentPosition(b.row.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
     });
     var notOnPage = [];
     Object.keys(queue).forEach(function (a) { queue[a].forEach(function () { notOnPage.push(a); }); });
@@ -496,8 +509,90 @@
     }
     log('เสร็จ ✓ ' + ok + ' แถว' + (swapped ? ' (สลับสไตล์อัตโนมัติ ' + swapped + ')' : '') + (fail ? ' · ✗ ' + fail + ' แถว (กรอบแดง ต้องแก้เอง)' : ''), fail ? 'err' : 'ok');
     log('ตรวจความถูกต้องก่อนกด Print All ทุกครั้ง');
-    ui.run.textContent = '▶ เริ่มตั้งค่า'; ui.run.disabled = false; running = false;
+    ui.run.textContent = '▶ เริ่มตั้งค่า'; ui.run.disabled = false; running = false; lastRunDone = true;
   }
+
+  /* ---------- อ่านค่าป้ายที่ฝังไว้ในไฟล์ Excel (หน้า Admin ใส่ไว้ใน Comments ของไฟล์) ---------- */
+  function u16(b, o) { return b[o] | (b[o + 1] << 8); }
+  function u32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+  async function inflateRaw(data) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('เบราว์เซอร์เก่าเกินไป อ่านไฟล์บีบอัดไม่ได้');
+    var ds = new DecompressionStream('deflate-raw');
+    var out = new Response(new Blob([data]).stream().pipeThrough(ds));
+    return new Uint8Array(await out.arrayBuffer());
+  }
+  // อ่านเฉพาะไฟล์ docProps/*.xml ในไฟล์ xlsx (ซึ่งคือ zip)
+  async function readDocProps(buf) {
+    var b = new Uint8Array(buf), eocd = -1;
+    for (var i = b.length - 22; i >= Math.max(0, b.length - 65557); i--) { if (u32(b, i) === 0x06054b50) { eocd = i; break; } }
+    if (eocd < 0) throw new Error('ไม่ใช่ไฟล์ .xlsx');
+    var n = u16(b, eocd + 10), p = u32(b, eocd + 16), out = [], dec = new TextDecoder();
+    for (var k = 0; k < n && u32(b, p) === 0x02014b50; k++) {
+      var method = u16(b, p + 10), csize = u32(b, p + 20), nl = u16(b, p + 28), el = u16(b, p + 30), cl = u16(b, p + 32);
+      var lho = u32(b, p + 42), name = dec.decode(b.subarray(p + 46, p + 46 + nl));
+      p += 46 + nl + el + cl;
+      if (!/^docProps\/.*\.xml$/i.test(name)) continue;
+      var start = lho + 30 + u16(b, lho + 26) + u16(b, lho + 28), raw = b.subarray(start, start + csize);
+      if (method === 0) out.push(dec.decode(raw));
+      else if (method === 8) out.push(dec.decode(await inflateRaw(raw)));
+    }
+    return out.join('\n');
+  }
+  function b64urlToText(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
+    var bin = atob(s), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  async function metaFromFile(file) {
+    var xml = await readDocProps(await file.arrayBuffer());
+    var m = xml.match(/SG59:([A-Za-z0-9_\-]+)/);
+    if (!m) return null;
+    var j = JSON.parse(b64urlToText(m[1]));
+    if (!j || !Array.isArray(j.items)) return null;
+    return j.items.map(function (it) {
+      return [String(it[0]).replace(/[\t\r\n]/g, ''), String(j.t || '').replace(/[\t\r\n]+/g, ' '), String(j.s || ''), parseInt(it[1], 10) || 1].join('\t');
+    });
+  }
+
+  var lastRunDone = true, autoTimer = null;
+  async function onFilesPicked(files) {
+    var list = Array.prototype.filter.call(files || [], function (f) { return /\.xlsx$/i.test(f.name); });
+    if (!list.length) return;
+    ui.box.style.display = 'flex';
+    var lines = [];
+    for (var i = 0; i < list.length; i++) {
+      try {
+        var l = await metaFromFile(list[i]);
+        if (l && l.length) { lines = lines.concat(l); log('📄 ' + list[i].name + ': ' + l.length + ' รายการ', 'ok'); }
+        else log('📄 ' + list[i].name + ': ไม่มีค่าป้ายในไฟล์ (Railcard หรือไฟล์ที่ Export ก่อนอัปเดต) — วางข้อความเองได้', 'err');
+      } catch (e) { log('📄 ' + list[i].name + ': อ่านไม่ได้ (' + e.message + ')', 'err'); }
+    }
+    if (!lines.length) return;
+    // งานรอบก่อนเสร็จแล้ว → เริ่มชุดใหม่ ; ยังไม่ได้รัน → ต่อท้าย (Upload หลายไฟล์ติดกัน)
+    ui.ta.value = (lastRunDone || !ui.ta.value.trim() ? '' : ui.ta.value.replace(/\s*$/, '\n')) + lines.join('\n');
+    lastRunDone = false;
+    if (!ui.auto.checked) { log('กด ▶ เริ่มตั้งค่า เมื่อรายการขึ้นบนหน้าเว็บครบแล้ว'); return; }
+    // รอให้ Portal แสดงแถวครบ แล้วเริ่มเอง
+    clearTimeout(autoTimer);
+    var t0 = Date.now();
+    log('⏳ รอรายการขึ้นบนหน้าเว็บ…');
+    (function waitRows() {
+      if (running) { autoTimer = setTimeout(waitRows, 800); return; }
+      var p = plan();
+      if (p && p.pairs.length && !p.notOnPage.length) { autoTimer = setTimeout(run, 600); return; }   // รอ render นิ่งอีกนิด
+      if (Date.now() - t0 > 60000) { log('รอนานเกิน 1 นาที รายการยังขึ้นไม่ครบ — กด ▶ เริ่มตั้งค่า เองได้', 'err'); return; }
+      autoTimer = setTimeout(waitRows, 700);
+    })();
+  }
+  // ฟังการเลือกไฟล์ / ลากไฟล์วางบนหน้า Portal (แค่อ่าน ไม่ขัดขวางการทำงานของ Portal)
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t && t.tagName === 'INPUT' && t.type === 'file' && !t.closest('#sg-helper')) onFilesPicked(t.files);
+  }, true);
+  document.addEventListener('drop', function (e) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) onFilesPicked(e.dataTransfer.files);
+  }, true);
 
   buildUI();
   window.__sgHelper = { show: function () { ui.box.style.display = 'flex'; }, parse: parseInput, rows: findRows };
