@@ -262,10 +262,11 @@
     return trig.tagName === 'SELECT' ? (trig.options[trig.selectedIndex] || {}).text : txt(trig);
   }
   // คืนค่า { err, note }
-  async function setTemplateOnce(row, name) {
-    var trig = templateTrigger(row.el);
+  async function setTemplateOnce(getRow, name) {
+    var row = getRow(), trig = templateTrigger(row.el);
+    if (!trig || !trig.isConnected) { await sleep(400); row = getRow(); trig = templateTrigger(row.el); }
     if (!trig) return { err: 'หา dropdown Template ไม่เจอ' };
-    if (normTpl(currentTpl(trig)) === normTpl(name)) return {};
+    if (normTpl(currentTpl(trig)) === normTpl(name)) return { picked: currentTpl(trig) };
     var want = normTpl(name), theme = themeOf(name), opts, pick = null, note = '';
 
     if (trig.tagName === 'SELECT') {
@@ -319,13 +320,13 @@
       await sleep(300); trig = fr();
       if (normTpl(currentTpl(trig)) !== normTpl(pick.text)) return { err: 'คลิกแล้วแต่ Template ยังไม่เปลี่ยน', note: note };
     }
-    return { note: note };
+    return { note: note, picked: pick.text.replace(/\s*\([^)]*\)\s*$/, '') };
   }
-  async function setTemplate(row, name) {
-    var r = await setTemplateOnce(row, name);
-    if (r.err && /ยังไม่เปลี่ยน|หาไม่เจอ/.test(r.err)) {        // ลองซ้ำอีกครั้ง
-      await sleep(400);
-      var r2 = await setTemplateOnce(row, name);
+  async function setTemplate(getRow, name) {
+    var r = await setTemplateOnce(getRow, name);
+    if (r.err && /ยังไม่เปลี่ยน|ไม่เจอ/.test(r.err)) {          // หน้าเว็บอาจกำลังวาดใหม่ → รอแล้วลองซ้ำ
+      await sleep(600);
+      var r2 = await setTemplateOnce(getRow, name);
       if (!r2.err) return r2;
     }
     return r;
@@ -385,7 +386,13 @@
     ui.run = h('button', { style: btn + ';background:#1f6feb;color:#fff;border-color:#1f6feb' }, ['▶ เริ่มตั้งค่า']);
     var bDiag = h('button', { style: btn, title: 'เก็บโครงสร้าง dropdown ไว้ส่งผู้ดูแล' }, ['🧪']);
     bDiag.onclick = diagnose;
-    ui.box.appendChild(h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' }, [bPaste, bCheck, ui.run, bDiag]));
+    ui.file = h('input', { type: 'file', accept: '.xlsx', multiple: '', style: 'display:none' });
+    ui.file.onchange = function () { onFilesPicked(ui.file.files); ui.file.value = ''; };
+    var bFile = h('button', { style: btn, title: 'เลือกไฟล์ Excel ตัวเดียวกับที่ Upload เข้า Portal (กรณีเปิดแผงหลัง Upload)' }, ['📂 อ่านจากไฟล์']);
+    bFile.onclick = function () { ui.file.click(); };
+    var bVerify = h('button', { style: btn, title: 'อ่านค่าจริงบนหน้าจอเทียบกับที่ตั้งไว้' }, ['✔ ตรวจซ้ำ']);
+    bVerify.onclick = function () { ui.log.textContent = ''; verify(); };
+    ui.box.appendChild(h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' }, [bFile, bPaste, bCheck, ui.run, bVerify, bDiag, ui.file]));
     ui.log = h('ol', { style: 'margin:0;padding:0 0 0 18px;overflow:auto;max-height:34vh;border-top:1px solid #eef;padding-top:6px' });
     ui.box.appendChild(ui.log);
     document.body.appendChild(ui.box);
@@ -479,6 +486,7 @@
     var p = check(); if (!p || !p.pairs.length) return;
     running = true; ui.run.disabled = true;
     var ok = 0, fail = 0, swapped = 0;
+    expected = [];
     for (var i = 0; i < p.pairs.length; i++) {
       var pr = p.pairs[i], w = pr.want, errs = [];
       ui.run.textContent = '⏳ ' + (i + 1) + '/' + p.pairs.length;
@@ -495,8 +503,9 @@
       await sleep(DELAY);
       try {
         if (w.template) {
-          var r1 = await setTemplate(pr.row, w.template);
+          var r1 = await setTemplate(cur, w.template);
           if (r1.err) errs.push(r1.err + (r1.note ? ' [' + r1.note + ']' : '')); else if (r1.note) { swapped++; log(w.article + ' ↺ ' + r1.note + ' (ประเภทสินค้าไม่ตรง)'); }
+          if (!r1.err) expected.push({ article: w.article, occ: pr.occ, tpl: r1.picked || w.template, size: w.size, copies: ui.cp.checked ? w.copies : 0 });
         }
         if (w.size && !errs.length) { var e2 = await setSize(cur, w.size); if (e2) errs.push(e2); }
         if (ui.cp.checked && w.copies) { var e3 = await setCopies(cur, w.copies); if (e3) errs.push(e3); }
@@ -508,8 +517,50 @@
       else { ok++; pr.row.el.style.outline = ''; }
     }
     log('เสร็จ ✓ ' + ok + ' แถว' + (swapped ? ' (สลับสไตล์อัตโนมัติ ' + swapped + ')' : '') + (fail ? ' · ✗ ' + fail + ' แถว (กรอบแดง ต้องแก้เอง)' : ''), fail ? 'err' : 'ok');
-    log('ตรวจความถูกต้องก่อนกด Print All ทุกครั้ง');
     ui.run.textContent = '▶ เริ่มตั้งค่า'; ui.run.disabled = false; running = false; lastRunDone = true;
+    await sleep(800);              // ให้หน้าเว็บนิ่งก่อน แล้วตรวจซ้ำจากค่าจริงบนหน้าจอ
+    verify();
+  }
+
+  /* ---------- ตรวจซ้ำ: อ่านค่าจริงบนหน้าจอเทียบกับที่ตั้งไว้ ---------- */
+  var expected = [];
+  // ขนาดที่ถูกเลือก: ดู attribute ก่อน ไม่งั้นใช้ "ปุ่มที่สีพื้นต่างจากปุ่มอื่น"
+  function selectedSize(rowEl) {
+    var bs = sizeButtons(rowEl);
+    if (!bs.length) return '';
+    var on = bs.filter(function (b) {
+      var st = (b.getAttribute('data-state') || '').toLowerCase();
+      return b.getAttribute('aria-pressed') === 'true' || b.getAttribute('aria-checked') === 'true' ||
+        b.getAttribute('aria-selected') === 'true' || st === 'on' || st === 'checked' || st === 'active';
+    });
+    if (on.length === 1) return txt(on[0]).toUpperCase();
+    var bg = bs.map(function (b) { return getComputedStyle(b).backgroundColor; }), cnt = {};
+    bg.forEach(function (c) { cnt[c] = (cnt[c] || 0) + 1; });
+    var odd = bs.filter(function (b, i) { return cnt[bg[i]] === 1; });
+    return odd.length === 1 && bs.length > 2 ? txt(odd[0]).toUpperCase() : '?';
+  }
+  function verify() {
+    var rows = findRows(), bad = 0, good = 0, unknown = 0, list = [];
+    rows.forEach(function (r) { r.el.style.outline = ''; });
+    expected.forEach(function (x) {
+      var r = rows.filter(function (y) { return y.article === x.article; })[x.occ];
+      if (!r) { bad++; list.push(x.article + ': แถวหายไปจากหน้าเว็บ'); return; }
+      var t = templateTrigger(r.el), cur = t ? currentTpl(t) : '', sz = selectedSize(r.el), why = [];
+      if (normTpl(cur) !== normTpl(x.tpl)) why.push('Template เป็น "' + (cur || '-') + '" ควรเป็น "' + x.tpl + '"');
+      if (x.size && sz !== '?' && sz !== x.size) why.push('ขนาดเป็น ' + (sz || '-') + ' ควรเป็น ' + x.size);
+      if (x.copies) { var c = copiesControl(r.el), n = c && (c.input ? parseInt(c.input.value, 10) : parseInt(txt(c.label), 10)); if (n && n !== x.copies) why.push('Copies เป็น ' + n + ' ควรเป็น ' + x.copies); }
+      if (why.length) { bad++; list.push(x.article + ': ' + why.join(' · ')); r.el.style.outline = '3px solid #f59e0b'; }
+      else { good++; if (x.size && sz === '?') unknown++; }
+    });
+    var pending = rows.filter(function (r) { var t = templateTrigger(r.el); return t && /select template/i.test(currentTpl(t)); });
+    pending.forEach(function (r) { r.el.style.outline = '3px solid #e63946'; });
+    log('— ตรวจซ้ำจากหน้าจอ —');
+    if (expected.length) log('ถูกต้อง ' + good + '/' + expected.length + ' แถว' + (unknown ? ' (อ่านขนาดไม่ได้ ' + unknown + ' แถว ตรวจด้วยตาอีกที)' : ''), bad ? 'err' : 'ok');
+    list.forEach(function (m) { log('⚠ ' + m + ' (กรอบส้ม)', 'err'); });
+    if (pending.length) log('ยังไม่ได้เลือก Template ' + pending.length + ' แถว: ' + pending.map(function (r) { return r.article; }).join(', ') + ' (กรอบแดง)', 'err');
+    if (!bad && !pending.length) log('✅ พร้อมกด Print All · ' + rows.length + ' แถว', 'ok');
+    else log('แก้แถวที่มีกรอบก่อนกด Print All (แก้เองแล้วกด ✔ ตรวจซ้ำ ได้)', 'err');
+    return { good: good, bad: bad, pending: pending.length };
   }
 
   /* ---------- อ่านค่าป้ายที่ฝังไว้ในไฟล์ Excel (หน้า Admin ใส่ไว้ใน Comments ของไฟล์) ---------- */
