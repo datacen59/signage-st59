@@ -482,7 +482,12 @@
  */
 (function () {
   'use strict';
-  var FNS = ['submitRequest', 'lookupProducts', 'getTemplateImages', 'ping', 'getMyRequests', 'markReceived', 'getProductPack'];
+  var FNS = ['submitRequest', 'lookupProducts', 'getTemplateImages', 'ping', 'getMyRequests', 'markReceived', 'getProductPack',
+    // หน้า Admin (ทุกตัวเช็ค PIN/token ที่ server)
+    'adminLogin', 'adminLogout', 'adminGetBoard', 'adminExport', 'adminReExport', 'adminUndoBatch',
+    'adminMarkReady', 'adminMarkReceived', 'adminUndoReady', 'adminDeleteRequests', 'adminRestoreRequests',
+    'adminProductInfo', 'adminImportProducts', 'adminListTemplates', 'adminSaveTemplate', 'adminDeleteTemplate',
+    'adminSetTemplateActive', 'adminMoveTemplate'];
   var CFG_KEY = 'sg_cfg_cache';
 
   function apiReady() { return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(API_URL); }
@@ -524,7 +529,7 @@
   /** เริ่มแอป: มีค่าที่จำไว้ → เปิดทันที แล้วอัปเดตเบื้องหลัง · ไม่มี → รอโหลดจาก GAS ก่อน */
   window.__bootApp = function () {
     var a = document.getElementById('adminLink');
-    if (a && apiReady()) a.href = API_URL + '?page=admin';
+    if (a) a.href = 'admin.html';   // หน้า Admin อยู่ข้างกันบน GitHub
     if (!apiReady()) { banner('ยังไม่ได้ตั้งค่า API_URL ในไฟล์ index.html กรุณาแจ้ง Admin'); }
 
     var cached = null;
