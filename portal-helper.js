@@ -13,6 +13,7 @@
   'use strict';
   if (window.__sgHelper) { window.__sgHelper.show(); return; }
 
+  var VERSION = '1.7';
   var SIZES = ['A3', 'A4', 'A5', 'A6'];
   var DELAY = 150;          // ms ระหว่างการคลิก
   var OPEN_TIMEOUT = 2000;  // ms รอ dropdown เปิด
@@ -371,7 +372,7 @@
     ui.box = h('div', { id: 'sg-helper', style: 'position:fixed;right:16px;bottom:16px;z-index:2147483647;width:380px;max-height:80vh;display:flex;flex-direction:column;gap:8px;background:#fff;border:1px solid #d5d9e3;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);padding:14px;font:13px/1.45 sans-serif;color:#14213d' });
     var close = h('button', { style: 'border:0;background:none;font-size:18px;cursor:pointer;margin-left:auto' }, ['×']);
     close.onclick = function () { ui.box.style.display = 'none'; };
-    ui.box.appendChild(h('div', { style: 'display:flex;align-items:center;gap:8px' }, [h('b', { style: 'font-size:15px' }, ['⚙ ตั้งค่าป้ายอัตโนมัติ · ST59']), close]));
+    ui.box.appendChild(h('div', { style: 'display:flex;align-items:center;gap:8px' }, [h('b', { style: 'font-size:15px' }, ['⚙ ตั้งค่าป้ายอัตโนมัติ · ST59']), h('small', { style: 'color:#99a' }, ['v' + VERSION]), close]));
     ui.box.appendChild(h('div', { style: 'color:#667' }, ['เปิดแผงนี้ไว้ แล้วกด Upload Excel ไฟล์จากหน้า Admin — ระบบอ่านค่าป้ายจากไฟล์ให้เอง (หรือวางข้อความเองก็ได้)']));
     ui.ta = h('textarea', { rows: '6', placeholder: '198368\tSimple1\tA4\t1', style: 'width:100%;box-sizing:border-box;font:12px monospace;border:1px solid #ccd;border-radius:8px;padding:6px;resize:vertical' });
     ui.box.appendChild(ui.ta);
@@ -384,7 +385,7 @@
     var bPaste = h('button', { style: btn }, ['📋 วาง']);
     var bCheck = h('button', { style: btn }, ['🔍 ตรวจหน้า']);
     ui.run = h('button', { style: btn + ';background:#1f6feb;color:#fff;border-color:#1f6feb' }, ['▶ เริ่มตั้งค่า']);
-    var bDiag = h('button', { style: btn, title: 'เก็บโครงสร้าง dropdown ไว้ส่งผู้ดูแล' }, ['🧪']);
+    var bDiag = h('button', { style: btn + ';color:#8a5a00', title: 'ใช้เฉพาะตอนระบบทำงานผิดพลาด: เก็บข้อมูลหน้าเว็บไว้ส่งผู้ดูแล (ไม่แก้อะไรบนหน้าเว็บ)' }, ['🧪 วินิจฉัย']);
     bDiag.onclick = diagnose;
     ui.file = h('input', { type: 'file', accept: '.xlsx', multiple: '', style: 'display:none' });
     ui.file.onchange = function () { onFilesPicked(ui.file.files); ui.file.value = ''; };
@@ -393,6 +394,8 @@
     var bVerify = h('button', { style: btn, title: 'อ่านค่าจริงบนหน้าจอเทียบกับที่ตั้งไว้' }, ['✔ ตรวจซ้ำ']);
     bVerify.onclick = function () { ui.log.textContent = ''; verify(); };
     ui.box.appendChild(h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' }, [bFile, bPaste, bCheck, ui.run, bVerify, bDiag, ui.file]));
+    ui.diag = h('div', { style: 'display:none' });
+    ui.box.appendChild(ui.diag);
     ui.log = h('ol', { style: 'margin:0;padding:0 0 0 18px;overflow:auto;max-height:34vh;border-top:1px solid #eef;padding-top:6px' });
     ui.box.appendChild(ui.log);
     document.body.appendChild(ui.box);
@@ -476,9 +479,18 @@
       await closeDropdown(trig);
     }
     var text = out.join('\n');
-    ui.ta.value = text; ui.ta.select();
-    try { await navigator.clipboard.writeText(text); log('คัดลอกผลวินิจฉัยแล้ว — วางส่งให้ผู้ดูแลได้เลย', 'ok'); }
-    catch (e) { log('ผลวินิจฉัยอยู่ในช่องข้อความ (เลือกไว้แล้ว) — กด Ctrl+C แล้วส่งให้ผู้ดูแล', 'ok'); }
+    // แสดงในกล่องแยก ไม่ทับช่องข้อมูลป้าย
+    ui.diag.textContent = '';
+    var pre = h('textarea', { readonly: '', rows: '6', style: 'width:100%;box-sizing:border-box;font:11px monospace;border:1px solid #f3dc8f;border-radius:8px;padding:6px;background:#fffbea' });
+    pre.value = text;
+    var close = h('button', { style: 'border:0;background:none;cursor:pointer;color:#667;font-size:12px' }, ['ปิด ✕']);
+    close.onclick = function () { ui.diag.textContent = ''; ui.diag.style.display = 'none'; };
+    ui.diag.appendChild(h('div', { style: 'display:flex;align-items:center;gap:6px;font-size:12px;color:#8a5a00' }, ['🧪 ผลวินิจฉัย (สำหรับส่งให้ผู้ดูแล ไม่ต้องใช้ตอนทำงานปกติ)', h('span', { style: 'flex:1' }), close]));
+    ui.diag.appendChild(pre);
+    ui.diag.style.display = 'block';
+    pre.select();
+    try { await navigator.clipboard.writeText(text); log('🧪 คัดลอกผลวินิจฉัยแล้ว — วางส่งให้ผู้ดูแลได้เลย (ไม่ได้แก้อะไรบนหน้าเว็บ)', 'ok'); }
+    catch (e) { log('🧪 ผลวินิจฉัยอยู่ในกล่องสีเหลือง — กด Ctrl+C แล้วส่งให้ผู้ดูแล', 'ok'); }
   }
   var running = false;
   async function run() {
