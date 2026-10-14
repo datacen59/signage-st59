@@ -394,7 +394,8 @@
 
     <section class="card hide" id="filesCard">
       <div class="card-h"><h2>ไฟล์ที่ดาวน์โหลดล่าสุด</h2></div>
-      <p class="muted" style="margin-top:-6px">Upload เข้า Portal ทีละไฟล์ตามเลขลำดับ ตั้ง Template + ขนาดตามชื่อไฟล์ แล้วพิมพ์ส่งให้แต่ละคน</p>
+      <p class="muted" style="margin-top:-6px">เปิดแผง ⚙ ตั้งค่าป้าย บน Portal ก่อน แล้ว Upload ไฟล์ → ระบบตั้ง Template + ขนาดให้เอง (สำรอง: กด 📋 Portal แล้ววางในแผง)</p>
+      <div id="portalCopyBox"></div>
       <div class="tablewrap">
         <table>
           <thead><tr><th>ไฟล์</th><th>ผู้ขอ</th><th>รูปแบบป้าย</th><th>รายการ</th><th>ใบ</th><th></th></tr></thead>
@@ -1023,7 +1024,65 @@ window.__startApp = function () {
     ws['!cols'] = [{ wch: 14 }, { wch: 8 }];
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, f.sheetName);
+    // ฝังค่าป้าย (Template/Size/รายการ) ไว้ใน Comments ของไฟล์ → แผง ⚙ ตั้งค่าป้ายบน Portal อ่านเองตอน Upload
+    // ไม่แตะชีท "Article No" ที่ Portal ใช้
+    if (f.type === 'Signage' && f.template) {
+      wb.Props = { Title: f.fileName.replace(/\.xlsx$/i, ''), Comments: 'SG59:' + toB64url(JSON.stringify({
+        v: 1, t: f.template, s: f.size, items: f.rows.map(function (r) { return [String(r[0]), r[1]]; })
+      })) };
+    }
     XLSX.writeFile(wb, f.fileName);
+  }
+  /** UTF-8 → base64url (ไม่มีอักขระพิเศษของ XML) */
+  function toB64url(text) {
+    var bytes = new TextEncoder().encode(text), bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  /** ข้อความสำหรับแผงตั้งค่าป้าย: Article ⇥ Template ⇥ Size ⇥ Copies (เฉพาะ Signage) */
+  function portalTextOf(f) {
+    if (f.type !== 'Signage' || !f.template) return '';
+    var t = String(f.template).replace(/[\t\r\n]+/g, ' ');
+    return f.rows.map(function (r) { return [r[0], t, f.size, r[1]].join('\t'); }).join('\n');
+  }
+  /** copy ลงคลิปบอร์ด: Clipboard API → execCommand → prompt ให้ copy เอง */
+  function copyText(text, done) {
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      if (!ok) window.prompt('กด Ctrl+C เพื่อคัดลอก แล้วกด OK', text);
+      done(ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    else fallback();
+  }
+  function copyBtn(label, text, title) {
+    var b = el('button', 'btn sm', label); b.type = 'button';
+    if (title) b.title = title;
+    b.addEventListener('click', function () {
+      copyText(text, function (ok) {
+        if (!ok) return;
+        b.textContent = '✓ คัดลอกแล้ว';
+        setTimeout(function () { b.textContent = label; }, 1800);
+      });
+    });
+    return b;
+  }
+  function renderPortalCopy(files) {
+    var box = $('portalCopyBox'); if (!box) return;
+    box.textContent = '';
+    var sign = files.filter(function (f) { return portalTextOf(f); });
+    if (!sign.length) return;
+    var all = sign.map(portalTextOf).join('\n');
+    var items = sign.reduce(function (s, f) { return s + f.count; }, 0);
+    var row = el('div', null); row.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px';
+    row.appendChild(copyBtn('📋 Copy สำหรับ Portal (ทั้งชุด ' + sign.length + ' ไฟล์ · ' + items + ' รายการ)', all));
+    box.appendChild(row);
   }
 
   function downloadFiles(files) {
@@ -1045,9 +1104,13 @@ window.__startApp = function () {
       tr.appendChild(el('td', null, String(f.copies)));
       var td = el('td'); var b = el('button', 'btn sm', '⬇ โหลด'); b.type = 'button';
       b.addEventListener('click', function () { saveFile(f); });
-      td.appendChild(b); tr.appendChild(td);
+      td.appendChild(b);
+      var pt = portalTextOf(f);
+      if (pt) { td.appendChild(document.createTextNode(' ')); td.appendChild(copyBtn('📋 Portal', pt, 'คัดลอกค่าป้ายของไฟล์นี้ ไปวางในแผง ⚙ ตั้งค่าป้าย')); }
+      tr.appendChild(td);
       tb.appendChild(tr);
     });
+    renderPortalCopy(files);
     $('filesCard').classList.remove('hide');
   }
 
