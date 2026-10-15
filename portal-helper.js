@@ -13,7 +13,7 @@
   'use strict';
   if (window.__sgHelper) { window.__sgHelper.show(); return; }
 
-  var VERSION = '1.8';
+  var VERSION = '1.9';
   var SIZES = ['A3', 'A4', 'A5', 'A6'];
   var DELAY = 150;          // ms ระหว่างการคลิก
   var OPEN_TIMEOUT = 2000;  // ms รอ dropdown เปิด
@@ -459,7 +459,7 @@
       navigator.clipboard.readText().then(function (t) { ui.ta.value = t; check(); }, function () { ui.ta.focus(); log('อ่านคลิปบอร์ดไม่ได้ — กด Ctrl+V ในช่องแทน'); });
     };
     bCheck.onclick = check;
-    ui.run.onclick = run;
+    ui.run.onclick = function () { autoPass = 0; run(); };
   }
 
   function plan() {
@@ -468,7 +468,8 @@
     var rows = findRows();
     var queue = {};
     data.forEach(function (d) { (queue[d.article] = queue[d.article] || []).push(d); });
-    var pairs = [], noData = [], seenArt = {};
+    var pairs = [], noData = [], seenArt = {}, lastOf = {};
+    data.forEach(function (d) { lastOf[d.article] = d; });
     rows.forEach(function (r) {
       r.occ = seenArt[r.article] = (seenArt[r.article] || 0) + 1; r.occ--;
       var t = templateTrigger(r.el);
@@ -478,7 +479,10 @@
     rows.filter(function (r) { return r.fresh; }).concat(rows.filter(function (r) { return !r.fresh; }))
       .forEach(function (r) {
         var q = queue[r.article];
-        if (q && q.length) pairs.push({ row: r, occ: r.occ, want: q.shift() }); else noData.push(r.article);
+        if (q && q.length) pairs.push({ row: r, occ: r.occ, want: q.shift() });
+        // Portal แยก 1 สินค้าเป็นหลายแถว (ตามช่วงโปร) → แถวที่เกินมาใช้ค่าเดียวกับสินค้านั้น
+        else if (lastOf[r.article] && r.fresh) pairs.push({ row: r, occ: r.occ, want: lastOf[r.article], extra: true });
+        else noData.push(r.article);
       });
     pairs.sort(function (a, b) {   // ทำตามลำดับบนหน้าเว็บ
       return a.row.el.compareDocumentPosition(b.row.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
@@ -487,13 +491,16 @@
     Object.keys(queue).forEach(function (a) { queue[a].forEach(function () { notOnPage.push(a); }); });
     return { data: data, rows: rows, pairs: pairs, noData: noData, notOnPage: notOnPage };
   }
-  function check() {
-    ui.log.textContent = '';
+  function check(keep) {
+    if (!keep) ui.log.textContent = '';
     var p = plan(); if (!p) return null;
+    if (keep) return p;   // รอบเสริม: ไม่ต้องสรุปซ้ำ
     log('ข้อมูลที่วาง: ' + p.data.length + ' รายการ · แถวบนหน้าเว็บ: ' + p.rows.length + ' แถว');
     log('จับคู่ได้ ' + p.pairs.length + ' แถว', p.pairs.length ? 'ok' : 'err');
     if (p.rows.length && !templateTrigger(p.rows[0].el)) log('⚠ แถวแรกหา dropdown Template ไม่เจอ — ส่งภาพ Inspect ให้ผู้ดูแล', 'err');
-    if (p.notOnPage.length) log('ไม่มีบนหน้าเว็บ (ยังไม่ได้ Upload?): ' + p.notOnPage.join(', '), 'err');
+    var ex = p.pairs.filter(function (x) { return x.extra; }).length;
+    if (ex) log('มีสินค้าที่ Portal แยกเป็นหลายแถว (หลายช่วงโปร) ' + ex + ' แถว → ใช้ค่าเดียวกันให้ทุกแถว');
+    if (p.notOnPage.length) log('ไม่มีบนหน้าเว็บ (Portal ไม่พบสินค้า/ไม่มีโปร หรือยังโหลดไม่เสร็จ): ' + p.notOnPage.join(', '), 'err');
     if (p.noData.length) log('บนหน้าเว็บแต่ไม่มีในข้อมูล (จะไม่แตะ): ' + p.noData.join(', '));
     return p;
   }
@@ -549,10 +556,13 @@
   var running = false;
   async function run() {
     if (running) return;
-    var p = check(); if (!p || !p.pairs.length) return;
+    var keep = autoPass > 0;
+    var p = check(keep); if (!p) return;
+    if (keep) p.pairs = p.pairs.filter(function (x) { return x.row.fresh; });   // รอบเสริม: ทำเฉพาะแถวที่ยังไม่ได้ตั้ง
+    if (!p.pairs.length) { autoPass = 0; return; }
     running = true; ui.run.disabled = true;
     var ok = 0, fail = 0, swapped = 0;
-    expected = [];
+    if (!keep) expected = [];
     for (var i = 0; i < p.pairs.length; i++) {
       var pr = p.pairs[i], w = pr.want, errs = [];
       ui.run.textContent = '⏳ ' + (i + 1) + '/' + p.pairs.length;
@@ -584,9 +594,19 @@
     }
     log('เสร็จ ✓ ' + ok + ' แถว' + (swapped ? ' (สลับสไตล์อัตโนมัติ ' + swapped + ')' : '') + (fail ? ' · ✗ ' + fail + ' แถว (กรอบแดง ต้องแก้เอง)' : ''), fail ? 'err' : 'ok');
     ui.run.textContent = '▶ เริ่มตั้งค่า'; ui.run.disabled = false; running = false; lastRunDone = true;
-    await sleep(800);              // ให้หน้าเว็บนิ่งก่อน แล้วตรวจซ้ำจากค่าจริงบนหน้าจอ
+    await sleep(1200);             // ให้หน้าเว็บนิ่งก่อน
+    // Portal โหลดแถวทยอยมา → ถ้ามีแถวใหม่ที่ยังเป็น Select Template และมีข้อมูล ทำต่ออัตโนมัติ (สูงสุด 3 รอบ)
+    var more = plan();
+    var left = more ? more.pairs.filter(function (x) { return x.row.fresh; }).length : 0;
+    if (left && autoPass < 3) {
+      autoPass++;
+      log('↻ พบแถวที่ยังไม่ได้ตั้ง ' + left + ' แถว — ทำต่อให้อัตโนมัติ (รอบ ' + (autoPass + 1) + ')');
+      return run();
+    }
+    autoPass = 0;
     verify();
   }
+  var autoPass = 0;
 
   /* ---------- ตรวจซ้ำ: อ่านค่าจริงบนหน้าจอเทียบกับที่ตั้งไว้ ---------- */
   var expected = [];
@@ -694,11 +714,15 @@
     clearTimeout(autoTimer);
     var t0 = Date.now();
     log('⏳ รอรายการขึ้นบนหน้าเว็บ…');
+    var lastN = -1, stableAt = Date.now();
     (function waitRows() {
       if (running) { autoTimer = setTimeout(waitRows, 800); return; }
       var p = plan();
-      if (p && p.pairs.length && !p.notOnPage.length) { autoTimer = setTimeout(run, 600); return; }   // รอ render นิ่งอีกนิด
-      if (Date.now() - t0 > 60000) { log('รอนานเกิน 1 นาที รายการยังขึ้นไม่ครบ — กด ▶ เริ่มตั้งค่า เองได้', 'err'); return; }
+      var n = p ? p.rows.length : 0;
+      if (n !== lastN) { lastN = n; stableAt = Date.now(); }
+      var stable = Date.now() - stableAt >= 3000;            // จำนวนแถวไม่เปลี่ยน 3 วิ = Portal โหลดเสร็จ
+      if (p && p.pairs.length && (!p.notOnPage.length || stable)) { autoPass = 0; autoTimer = setTimeout(run, 600); return; }
+      if (Date.now() - t0 > 60000) { log('รอนานเกิน 1 นาที ยังไม่พบรายการบนหน้าเว็บ — Upload แล้วหรือยัง? กด ▶ เริ่มตั้งค่า เองได้', 'err'); return; }
       autoTimer = setTimeout(waitRows, 700);
     })();
   }
