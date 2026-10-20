@@ -522,11 +522,38 @@
 
   function apiReady() { return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(API_URL); }
 
+  /**
+   * "Failed to fetch" = คำขอไม่ถึง/ไม่ได้คำตอบจาก GAS (เน็ตสะดุด, Google ตอบช้า/ทำงานพร้อมกันเกินโควตา)
+   * → คำสั่งที่อ่านอย่างเดียว ลองใหม่อัตโนมัติ 2 ครั้ง · คำสั่งที่เขียนข้อมูล ไม่ลองซ้ำเอง (กันทำซ้ำ) แต่บอกให้ตรวจผล
+   */
+  var SAFE_RETRY = { getConfig: 1, ping: 1, lookupProducts: 1, getTemplateImages: 1, getMyRequests: 1, getProductPack: 1,
+    adminLogin: 1, adminGetBoard: 1, adminReExport: 1, adminProductInfo: 1, adminListTemplates: 1 };
+  var RETRY_WAIT = [1500, 4000];
+  function netError(e) {
+    var err = new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ (เน็ตสะดุด หรือ Google ตอบช้า) — ลองใหม่อีกครั้ง');
+    err.network = true; err.raw = e && e.message;
+    return err;
+  }
+  function callOnce(fn, args) {
+    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, args: args || [] }) })
+      .then(function (r) {
+        if (!r.ok) { var e = new Error('เซิร์ฟเวอร์ตอบกลับ ' + r.status); if (r.status >= 500 || r.status === 429) e.network = true; throw e; }
+        return r.json().catch(function () { var e = new Error('เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (Google อาจทำงานหนัก)'); e.network = true; throw e; });
+      }, function (e) { throw netError(e); });
+  }
   function callApi(fn, args) {
     if (!apiReady()) return Promise.reject(new Error('ยังไม่ได้ตั้งค่า API_URL ในไฟล์ index.html'));
-    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, args: args || [] }) })
-      .then(function (r) { if (!r.ok) throw new Error('เซิร์ฟเวอร์ตอบกลับ ' + r.status); return r.json(); })
-      .then(function (j) { if (!j || !j.ok) throw new Error((j && j.message) || 'เกิดข้อผิดพลาด'); return j.result; });
+    var n = 0;
+    function attempt() {
+      return callOnce(fn, args).catch(function (e) {
+        if (e.network && SAFE_RETRY[fn] && n < RETRY_WAIT.length) {
+          var wait = RETRY_WAIT[n++];
+          return new Promise(function (r) { setTimeout(r, wait); }).then(attempt);
+        }
+        throw e;
+      });
+    }
+    return attempt().then(function (j) { if (!j || !j.ok) throw new Error((j && j.message) || 'เกิดข้อผิดพลาด'); return j.result; });
   }
 
   function Runner() { this._s = null; this._f = null; }
@@ -620,6 +647,10 @@ window.__startApp = function () {
         .withFailureHandler(function (e) { reject(e instanceof Error ? e : new Error(String(e))); });
       r[fn].apply(r, args);
     });
+  }
+  /** คำสั่งที่เขียนข้อมูลแล้วเน็ตสะดุด: server อาจทำสำเร็จไปแล้ว → บอกให้ตรวจ แทนที่จะโชว์ Failed to fetch */
+  function writeErr(e) {
+    return e && e.network ? 'เน็ตสะดุดระหว่างส่งคำสั่ง (อาจทำสำเร็จแล้ว) — กด ⟳ เพื่อตรวจสถานะก่อนกดซ้ำ' : (e && e.message) || 'เกิดข้อผิดพลาด';
   }
 
   function groupRows(rows) {
@@ -1132,7 +1163,7 @@ window.__startApp = function () {
     return call('adminMarkReady', pin, ids).then(function () {
       msg($('mainMsg'), '✓ แจ้ง พนง. ให้มารับแล้ว ' + ids.length + ' คำขอ', true);
       return fadeOut(ids);
-    }).catch(function (e) { msg($('mainMsg'), e.message, false); if (btn) btn.disabled = false; syncTop(); });
+    }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); if (btn) btn.disabled = false; syncTop(); });
   }
 
   /* ---------- ลบคำขอ (ซ่อนไว้ก่อน กด "เลิกทำ" ได้) ---------- */
@@ -1150,7 +1181,7 @@ window.__startApp = function () {
     return call('adminDeleteRequests', pin, ids).then(function () {
       undoMsg('🗑 ลบแล้ว ' + ids.length + ' คำขอ', ids);
       return fadeOut(ids);
-    }).catch(function (e) { msg($('mainMsg'), e.message, false); if (btn) btn.disabled = false; syncTop(); });
+    }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); if (btn) btn.disabled = false; syncTop(); });
   }
 
   /** ข้อความพร้อมปุ่ม "เลิกทำ" (กดได้จนกว่าจะมีข้อความใหม่) */
@@ -1163,7 +1194,7 @@ window.__startApp = function () {
       call('adminRestoreRequests', pin, ids).then(function () {
         msg($('mainMsg'), '↶ กู้คืนแล้ว ' + ids.length + ' คำขอ', true);
         return loadPending();
-      }).catch(function (e) { msg($('mainMsg'), e.message, false); u.disabled = false; });
+      }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); u.disabled = false; });
     });
     box.appendChild(u);
   }
@@ -1177,7 +1208,7 @@ window.__startApp = function () {
     return call('adminMarkReceived', pin, ids).then(function () {
       msg($('mainMsg'), '✓ บันทึกส่งมอบแล้ว ' + ids.length + ' คำขอ (ดูได้ในแท็บประวัติ)', true);
       return fadeOut(ids);
-    }).catch(function (e) { msg($('mainMsg'), e.message, false); if (btn) btn.disabled = false; syncTop(); });
+    }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); if (btn) btn.disabled = false; syncTop(); });
   }
 
   function doUndoReady(id, btn) {
@@ -1185,7 +1216,7 @@ window.__startApp = function () {
     return call('adminUndoReady', pin, id).then(function () {
       msg($('mainMsg'), 'ย้อนกลับเป็น "กำลังพิมพ์" แล้ว', true);
       return fadeOut([id]);
-    }).catch(function (e) { msg($('mainMsg'), e.message, false); if (btn) btn.disabled = false; });
+    }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); if (btn) btn.disabled = false; });
   }
 
   function doExport(ids, btn) {
@@ -1208,9 +1239,38 @@ window.__startApp = function () {
       });
       return new Promise(function (r) { setTimeout(r, 300); }).then(loadPending);
     }).catch(function (e) {
+      if (e && e.network) return recoverExport(ids, btn);
       msg($('mainMsg'), e.message, false);
       if (btn) btn.disabled = false;
       syncTop();
+    });
+  }
+
+  /**
+   * Export แล้วเน็ตสะดุด: server อาจบันทึก "กำลังพิมพ์" ไปแล้วแต่ไฟล์ไม่ถึงเครื่อง
+   * → โหลดบอร์ดใหม่ ถ้าคำขอที่เลือกมี Batch แล้ว ดาวน์โหลดไฟล์ของ Batch นั้นให้อัตโนมัติ (ไม่ Export ซ้ำ)
+   */
+  function recoverExport(ids, btn) {
+    msg($('mainMsg'), '⏳ เน็ตสะดุดระหว่าง Export — กำลังตรวจว่าระบบบันทึกแล้วหรือยัง…', true);
+    return new Promise(function (r) { setTimeout(r, 2500); }).then(loadPending).then(function () {
+      var want = {}; ids.forEach(function (id) { want[id] = 1; });
+      var batches = {};
+      state.reqs.forEach(function (g) { if (want[g.id] && g.batchId && g.status !== 'Pending') batches[g.batchId] = 1; });
+      var list = Object.keys(batches);
+      if (!list.length) {
+        msg($('mainMsg'), 'Export ไม่สำเร็จ (เน็ตสะดุด) — คำขอยังอยู่ที่ "รอ Export" กด Export ใหม่ได้เลย', false);
+        if (btn) btn.disabled = false; syncTop(); return;
+      }
+      $('batchId').value = list[list.length - 1];
+      return list.reduce(function (p, b) {
+        return p.then(function (acc) { return call('adminReExport', pin, b).then(function (res) { return acc.concat(res.files); }); });
+      }, Promise.resolve([])).then(function (files) {
+        downloadFiles(files);
+        msg($('mainMsg'), '✓ ระบบบันทึก Export แล้ว (เน็ตสะดุดตอนตอบกลับ) — ดาวน์โหลดไฟล์ให้แล้ว ' + files.length + ' ไฟล์ · Batch ' + list.join(', '), true);
+      });
+    }).catch(function (e2) {
+      msg($('mainMsg'), 'ตรวจสถานะไม่สำเร็จ: ' + e2.message + ' — ไปที่แท็บ "กำลังพิมพ์" ดู Batch แล้วใช้ "ดาวน์โหลดซ้ำ"', false);
+      if (btn) btn.disabled = false; syncTop();
     });
   }
 
