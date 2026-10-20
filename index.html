@@ -1047,16 +1047,45 @@ window.__startApp = function () {
   }
   function closeLightbox() { $('lightbox').classList.add('hide'); $('lbImg').removeAttribute('src'); }
 
+  /**
+   * ภาพตัวอย่างป้าย: เก็บไว้ในเครื่อง (IndexedDB) → เปิดหน้าครั้งต่อไปขึ้นทันที ไม่ต้องรอ server
+   * แล้วถาม server เบื้องหลังว่ามีภาพไหนใหม่/เปลี่ยน (ส่งลายนิ้วมือภาพที่มีไป → server ส่งกลับเฉพาะภาพที่ต่าง)
+   */
+  var IMG_KEY = 'tplimg';
   function loadImages() {
     if (!TEMPLATES.some(function (t) { return t.hasImage; })) { imagesLoaded = true; return; }
-    google.script.run
-      .withSuccessHandler(function (res) {
-        imagesLoaded = true;
-        if (res && res.ok) IMAGES = res.images || {};
-        renderTemplates();
-      })
-      .withFailureHandler(function () { imagesLoaded = true; renderTemplates(); }) // ไม่มีภาพก็ยังใช้งานได้
-      .getTemplateImages();
+    idbGet(IMG_KEY).then(function (saved) {
+      saved = (saved && typeof saved === 'object') ? saved : {};
+      var have = {}, n = 0;
+      Object.keys(saved).forEach(function (id) {
+        if (saved[id] && saved[id].d) { IMAGES[id] = saved[id].d; have[id] = saved[id].v || ''; n++; }
+      });
+      if (n) { imagesLoaded = true; renderTemplates(); }   // แสดงภาพที่มีในเครื่องทันที
+      google.script.run
+        .withSuccessHandler(function (res) {
+          imagesLoaded = true;
+          if (!res || !res.ok) { renderTemplates(); return; }
+          var imgs = res.images || {}, vers = res.vers, next = {}, changed = false;
+          if (!vers) {                                     // server ตัวเก่า: ส่งมาครบทุกภาพ
+            IMAGES = imgs; renderTemplates();
+            Object.keys(imgs).forEach(function (id) { next[id] = { v: '', d: imgs[id] }; });
+            idbPut(IMG_KEY, next); return;
+          }
+          Object.keys(vers).forEach(function (id) {
+            var d = imgs[id] || (saved[id] && saved[id].v === vers[id] ? saved[id].d : '');
+            if (!d) return;
+            if (IMAGES[id] !== d) changed = true;
+            next[id] = { v: vers[id], d: d };
+          });
+          var fresh = {}; Object.keys(next).forEach(function (id) { fresh[id] = next[id].d; });
+          if (Object.keys(IMAGES).length !== Object.keys(fresh).length) changed = true;
+          IMAGES = fresh;
+          if (changed || !n) renderTemplates();
+          if (changed || Object.keys(imgs).length) idbPut(IMG_KEY, next);
+        })
+        .withFailureHandler(function () { imagesLoaded = true; renderTemplates(); }) // ไม่มีภาพก็ยังใช้งานได้
+        .getTemplateImages(have);
+    });
   }
 
   function setSize(s) {
