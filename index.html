@@ -492,12 +492,51 @@
 
   function apiReady() { return /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(API_URL); }
 
+  /**
+   * "Failed to fetch" = คำขอไม่ถึง/ไม่ได้คำตอบจาก GAS (เน็ตสะดุด, Google ตอบช้า/ทำงานพร้อมกันเกินโควตา)
+   * → คำสั่งที่อ่านอย่างเดียว ลองใหม่อัตโนมัติ 2 ครั้ง · คำสั่งที่เขียนข้อมูล ไม่ลองซ้ำเอง (กันทำซ้ำ) แต่บอกให้ตรวจผล
+   */
+  // submitRequest ลองซ้ำได้ปลอดภัย: server กันบันทึกซ้ำด้วยเลขที่คำขอ (requestId) อยู่แล้ว
+  var SAFE_RETRY = { getConfig: 1, ping: 1, lookupProducts: 1, getTemplateImages: 1, getMyRequests: 1, getProductPack: 1,
+    submitRequest: 1 };
+  var RETRY_WAIT = [1500, 4000, 8000];
+  function netError(e) {
+    var err = new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ (เน็ตสะดุด หรือ Google ตอบช้า) — ลองใหม่อีกครั้ง');
+    err.network = true; err.raw = e && e.message;
+    return err;
+  }
+  /** Google ตอบ 404/408/429/5xx เป็นพักๆ ตอนระบบเขาหนัก (URL ถูกต้อง แต่ไม่ได้รันสคริปต์) → ถือเป็นสะดุดชั่วคราว ลองใหม่ได้ */
+  var TRANSIENT = { 404: 1, 408: 1, 425: 1, 429: 1 };
+  var TIMEOUT_MS = 45000;   // คำสั่งอ่านอย่างเดียวที่ค้างนานเกิน → ยกเลิกแล้วลองใหม่ (Google บางครั้งค้างเป็นนาที)
+  function callOnce(fn, args) {
+    var ctl = (SAFE_RETRY[fn] && typeof AbortController === 'function') ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, TIMEOUT_MS) : null;
+    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, args: args || [] }), signal: ctl ? ctl.signal : undefined })
+      .then(function (r) {
+        if (!r.ok) {
+          var e = new Error(r.status === 404 ? 'Google ไม่ตอบชั่วคราว (404) — ลองใหม่อีกครั้ง' : 'เซิร์ฟเวอร์ตอบกลับ ' + r.status);
+          if (r.status >= 500 || TRANSIENT[r.status]) e.network = true;
+          throw e;
+        }
+        return r.json().catch(function () { var e = new Error('เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (Google อาจทำงานหนัก)'); e.network = true; throw e; });
+      }, function (e) { throw netError(e); })
+      .finally(function () { if (timer) clearTimeout(timer); });
+  }
   function callApi(fn, args) {
     if (!apiReady()) return Promise.reject(new Error('ยังไม่ได้ตั้งค่า API_URL ในไฟล์ index.html'));
-    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, args: args || [] }) })
-      .then(function (r) { if (!r.ok) throw new Error('เซิร์ฟเวอร์ตอบกลับ ' + r.status); return r.json(); })
-      .then(function (j) { if (!j || !j.ok) throw new Error((j && j.message) || 'เกิดข้อผิดพลาด'); return j.result; });
+    var n = 0;
+    function attempt() {
+      return callOnce(fn, args).catch(function (e) {
+        if (e.network && SAFE_RETRY[fn] && n < RETRY_WAIT.length) {
+          var wait = RETRY_WAIT[n++];
+          return new Promise(function (r) { setTimeout(r, wait); }).then(attempt);
+        }
+        throw e;
+      });
+    }
+    return attempt().then(function (j) { if (!j || !j.ok) throw new Error((j && j.message) || 'เกิดข้อผิดพลาด'); return j.result; });
   }
+
 
   function Runner() { this._s = null; this._f = null; }
   Runner.prototype.withSuccessHandler = function (f) { this._s = f; return this; };
@@ -987,7 +1026,7 @@ window.__startApp = function () {
       box = el('div', 'thumb');
       var im = el('img'); im.src = img; im.alt = t.name; im.loading = 'lazy';
       box.appendChild(im);
-    } else if (t && t.hasImage && !imagesLoaded) {
+    } else if (t && !imagesLoaded) {
       box = el('div', 'thumb loading');
     } else {
       box = el('div', 'thumb mini');
@@ -1053,7 +1092,7 @@ window.__startApp = function () {
    */
   var IMG_KEY = 'tplimg';
   function loadImages() {
-    if (!TEMPLATES.some(function (t) { return t.hasImage; })) { imagesLoaded = true; return; }
+    // ไม่ตัดสินจากค่าที่จำไว้ (อาจเก่า) → ถาม server เสมอ ระหว่างนี้แสดงภาพในเครื่อง/กล่องโหลด
     idbGet(IMG_KEY).then(function (saved) {
       saved = (saved && typeof saved === 'object') ? saved : {};
       var have = {}, n = 0;
