@@ -662,6 +662,20 @@ window.__startApp = function () {
   function writeErr(e) {
     return e && e.network ? 'เน็ตสะดุดระหว่างส่งคำสั่ง (อาจทำสำเร็จแล้ว) — กด ⟳ เพื่อตรวจสถานะก่อนกดซ้ำ' : (e && e.message) || 'เกิดข้อผิดพลาด';
   }
+  /**
+   * คำสั่งเขียนข้อมูลแล้วเน็ตสะดุด → โหลดบอร์ดใหม่แล้วตรวจให้เองว่าสำเร็จหรือยัง (แทนให้ผู้ใช้เดา)
+   * done(g, id) = เงื่อนไขว่าสำเร็จ (g = คำขอบนบอร์ด หรือ undefined ถ้าไม่อยู่บนบอร์ดแล้ว)
+   */
+  function recoverWrite(e, ids, done, okText, reEnable) {
+    if (!e || !e.network) { msg($('mainMsg'), (e && e.message) || 'เกิดข้อผิดพลาด', false); if (reEnable) reEnable(); return; }
+    msg($('mainMsg'), '⏳ เน็ตสะดุด — กำลังตรวจว่าคำสั่งสำเร็จหรือยัง…', true);
+    return new Promise(function (r) { setTimeout(r, 2000); }).then(loadPending).then(function () {
+      var by = {}; state.reqs.forEach(function (g) { by[g.id] = g; });
+      var ok = ids.every(function (id) { return done(by[id], id); });
+      if (ok) msg($('mainMsg'), '✓ ' + okText + ' (ตรวจแล้ว · เน็ตสะดุดแค่ตอนตอบกลับ)', true);
+      else { msg($('mainMsg'), 'คำสั่งยังไม่สำเร็จ (เน็ตสะดุด) — กดใหม่อีกครั้งได้เลย', false); if (reEnable) reEnable(); }
+    }).catch(function () { msg($('mainMsg'), writeErr(e), false); if (reEnable) reEnable(); });
+  }
 
   function groupRows(rows) {
     var map = {}, list = [];
@@ -1192,7 +1206,10 @@ window.__startApp = function () {
     return call('adminMarkReady', pin, ids).then(function () {
       msg($('mainMsg'), '✓ แจ้ง พนง. ให้มารับแล้ว ' + ids.length + ' คำขอ', true);
       return fadeOut(ids);
-    }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); if (btn) btn.disabled = false; syncTop(); });
+    }).catch(function (e) {
+      return recoverWrite(e, ids, function (g) { return g && g.status === 'Ready'; }, 'แจ้ง พนง. ให้มารับแล้ว ' + ids.length + ' คำขอ',
+        function () { if (btn) btn.disabled = false; syncTop(); });
+    });
   }
 
   /* ---------- ลบคำขอ (ซ่อนไว้ก่อน กด "เลิกทำ" ได้) ---------- */
@@ -1210,7 +1227,10 @@ window.__startApp = function () {
     return call('adminDeleteRequests', pin, ids).then(function () {
       undoMsg('🗑 ลบแล้ว ' + ids.length + ' คำขอ', ids);
       return fadeOut(ids);
-    }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); if (btn) btn.disabled = false; syncTop(); });
+    }).catch(function (e) {
+      return recoverWrite(e, ids, function (g) { return !g; }, 'ลบแล้ว ' + ids.length + ' คำขอ',
+        function () { if (btn) btn.disabled = false; syncTop(); });
+    });
   }
 
   /** ข้อความพร้อมปุ่ม "เลิกทำ" (กดได้จนกว่าจะมีข้อความใหม่) */
@@ -1237,7 +1257,10 @@ window.__startApp = function () {
     return call('adminMarkReceived', pin, ids).then(function () {
       msg($('mainMsg'), '✓ บันทึกส่งมอบแล้ว ' + ids.length + ' คำขอ (ดูได้ในแท็บประวัติ)', true);
       return fadeOut(ids);
-    }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); if (btn) btn.disabled = false; syncTop(); });
+    }).catch(function (e) {
+      return recoverWrite(e, ids, function (g) { return !g || g.status === 'Received'; }, 'บันทึกส่งมอบแล้ว ' + ids.length + ' คำขอ',
+        function () { if (btn) btn.disabled = false; syncTop(); });
+    });
   }
 
   function doUndoReady(id, btn) {
@@ -1245,7 +1268,10 @@ window.__startApp = function () {
     return call('adminUndoReady', pin, id).then(function () {
       msg($('mainMsg'), 'ย้อนกลับเป็น "กำลังพิมพ์" แล้ว', true);
       return fadeOut([id]);
-    }).catch(function (e) { msg($('mainMsg'), writeErr(e), false); if (btn) btn.disabled = false; });
+    }).catch(function (e) {
+      return recoverWrite(e, [id], function (g) { return g && g.status === 'Exported'; }, 'ย้อนกลับเป็น "กำลังพิมพ์" แล้ว',
+        function () { if (btn) btn.disabled = false; });
+    });
   }
 
   function doExport(ids, btn) {
