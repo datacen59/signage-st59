@@ -528,18 +528,28 @@
    */
   var SAFE_RETRY = { getConfig: 1, ping: 1, lookupProducts: 1, getTemplateImages: 1, getMyRequests: 1, getProductPack: 1,
     adminLogin: 1, adminGetBoard: 1, adminReExport: 1, adminProductInfo: 1, adminListTemplates: 1 };
-  var RETRY_WAIT = [1500, 4000];
+  var RETRY_WAIT = [1500, 4000, 8000];
   function netError(e) {
     var err = new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ (เน็ตสะดุด หรือ Google ตอบช้า) — ลองใหม่อีกครั้ง');
     err.network = true; err.raw = e && e.message;
     return err;
   }
+  /** Google ตอบ 404/408/429/5xx เป็นพักๆ ตอนระบบเขาหนัก (URL ถูกต้อง แต่ไม่ได้รันสคริปต์) → ถือเป็นสะดุดชั่วคราว ลองใหม่ได้ */
+  var TRANSIENT = { 404: 1, 408: 1, 425: 1, 429: 1 };
+  var TIMEOUT_MS = 45000;   // คำสั่งอ่านอย่างเดียวที่ค้างนานเกิน → ยกเลิกแล้วลองใหม่ (Google บางครั้งค้างเป็นนาที)
   function callOnce(fn, args) {
-    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, args: args || [] }) })
+    var ctl = (SAFE_RETRY[fn] && typeof AbortController === 'function') ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, TIMEOUT_MS) : null;
+    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, args: args || [] }), signal: ctl ? ctl.signal : undefined })
       .then(function (r) {
-        if (!r.ok) { var e = new Error('เซิร์ฟเวอร์ตอบกลับ ' + r.status); if (r.status >= 500 || r.status === 429) e.network = true; throw e; }
+        if (!r.ok) {
+          var e = new Error(r.status === 404 ? 'Google ไม่ตอบชั่วคราว (404) — ลองใหม่อีกครั้ง' : 'เซิร์ฟเวอร์ตอบกลับ ' + r.status);
+          if (r.status >= 500 || TRANSIENT[r.status]) e.network = true;
+          throw e;
+        }
         return r.json().catch(function () { var e = new Error('เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง (Google อาจทำงานหนัก)'); e.network = true; throw e; });
-      }, function (e) { throw netError(e); });
+      }, function (e) { throw netError(e); })
+      .finally(function () { if (timer) clearTimeout(timer); });
   }
   function callApi(fn, args) {
     if (!apiReady()) return Promise.reject(new Error('ยังไม่ได้ตั้งค่า API_URL ในไฟล์ index.html'));
