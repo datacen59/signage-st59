@@ -834,6 +834,7 @@ window.__startApp = function () {
   function countTabs(groups) {
     var cnt = { Pending: 0, Exported: 0, Ready: 0, History: 0 };
     groups.forEach(function (g) { TABS.forEach(function (k) { if (inTab(g, k)) cnt[k]++; }); });
+    if (!BOARD.histIncluded) cnt.History = BOARD.histCount;   // ยังไม่ได้โหลดประวัติ → ใช้จำนวนที่ server บอก
     TABS.forEach(function (k) { $('cnt' + k).textContent = cnt[k]; });
     return cnt;
   }
@@ -876,10 +877,26 @@ window.__startApp = function () {
     render();
   }
 
+  /**
+   * บอร์ดแบบเบา: server เก็บผลไว้ใน cache + บอกเลขเวอร์ชัน
+   * - ปกติขอเฉพาะงานวันนี้ · ประวัติขอเมื่ออยู่แท็บ "ประวัติ"
+   * - เช็คทุก 30 วิ ส่งเลขเวอร์ชันไป ถ้าไม่มีอะไรเปลี่ยน server ตอบสั้นๆ ว่า same
+   */
+  var BOARD = { ver: '', histIncluded: false, histCount: 0 };
+  function boardOpts(force) {
+    var wantHist = state.status === 'History';
+    return { history: wantHist, ver: (!force && BOARD.ver && BOARD.histIncluded === wantHist) ? BOARD.ver : '' };
+  }
+  function takeBoard(res) {
+    if (res.historyDays) HISTORY_DAYS = res.historyDays;
+    BOARD.ver = res.ver || '';
+    BOARD.histIncluded = res.historyIncluded !== false;   // server ตัวเก่า (ไม่มีฟิลด์นี้) = ส่งครบ
+    BOARD.histCount = Number(res.historyCount) || 0;
+  }
   function loadPending() {
     $('refreshBtn').disabled = true;
-    return call('adminGetBoard', pin).then(function (res) {
-      if (res.historyDays) HISTORY_DAYS = res.historyDays;
+    return call('adminGetBoard', pin, boardOpts(true)).then(function (res) {
+      takeBoard(res);
       detectNew(res.rows);
       applyRows(res.rows);
     }).finally(function () { $('refreshBtn').disabled = false; });
@@ -1047,7 +1064,9 @@ window.__startApp = function () {
   function poll() {
     if (!pin || polling || $('main').classList.contains('hide') || $('refreshBtn').disabled) return;
     polling = true;
-    call('adminGetBoard', pin).then(function (res) {
+    call('adminGetBoard', pin, boardOpts(false)).then(function (res) {
+      if (res.same) return;                 // ไม่มีอะไรเปลี่ยน
+      takeBoard(res);
       detectNew(res.rows);
       if (document.querySelector('.req-body:not(.hide)')) {
         NOTI.stash = res.rows;
@@ -1385,6 +1404,11 @@ window.__startApp = function () {
       state.status = b.getAttribute('data-st'); state.selected = {};
       document.querySelectorAll('#statusSeg button').forEach(function (x) { x.classList.toggle('on', x === b); });
       clearMsg($('mainMsg')); render();
+      if (state.status === 'History' && !BOARD.histIncluded && pin) {   // ประวัติโหลดเมื่อกดดู
+        $('reqList').textContent = '';
+        $('reqList').appendChild(el('div', 'empty', 'กำลังโหลดประวัติ…'));
+        loadPending().catch(function (e) { msg($('mainMsg'), e.message, false); render(); });
+      }
     });
   });
 
